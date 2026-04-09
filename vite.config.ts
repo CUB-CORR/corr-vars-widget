@@ -12,7 +12,7 @@ export const baseConfig: UserConfig = {
     plugins: [tailwindcss(), svelte()],
     build: {
         assetsDir: '',
-		outDir: './py/ipyfoo/static/',
+		outDir: './py/corr_vars_widget/static/',
         lib: {
             entry: ["./src/main.ts"],
             cssFileName: "main",
