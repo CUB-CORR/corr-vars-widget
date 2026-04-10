@@ -14,7 +14,7 @@ export const baseConfig: UserConfig = {
         assetsDir: '',
 		outDir: './py/corr_vars_widget/static/',
         lib: {
-            entry: ["./src/main.ts"],
+            entry: ["./src/obs.ts"],
             cssFileName: "main",
             formats: ["es"],
         },
@@ -22,8 +22,9 @@ export const baseConfig: UserConfig = {
 			output: {
 				entryFileNames: `[name].js`,
 				chunkFileNames: `[name].js`,
-				assetFileNames: `[name].[ext]`
-			}
+				assetFileNames: `[name].[ext]`,
+			},
+            preserveEntrySignatures: "allow-extension"
 		}
 	}
 }

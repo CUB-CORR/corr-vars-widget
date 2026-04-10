@@ -4,8 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch --config vite.dev.config.js",
-    "build": "vite build --config vite.config.js",
+    "dev:obs": "vite build --watch --config vite.obs.dev.config.js",
+    "dev:obsm": "vite build --watch --config vite.obsm.dev.config.js",
+    "dev": "npm-run-all --parallel dev:obs dev:obsm",
+    "build:obs": "vite build --config vite.obs.config.js",
+    "build:obsm": "vite build --config vite.obsm.config.js",
+    "build": "npm-run-all build:obs build:obsm",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "lint": "prettier --check .",
     "format": "prettier --write ."
@@ -31,6 +35,7 @@
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
     "htl": "~0.3.1",
+    "npm-run-all": "^4.1.5",
     "prettier": "^3.8.1",
     "prettier-plugin-svelte": "^3.4.1",
     "prettier-plugin-tailwindcss": "^0.7.2",

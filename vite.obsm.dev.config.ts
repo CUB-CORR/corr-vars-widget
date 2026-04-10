@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { baseConfig } from './vite.config';
+import { baseConfig } from './vite.obsm.config';
 
 // https://vite.dev/config/
 export default defineConfig({
