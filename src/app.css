@@ -169,6 +169,12 @@
 	* {
 		@apply border-border outline-ring/50;
 	}
+  :host(body) {
+    @apply bg-background text-foreground;
+  }
+  :host(html) {
+    @apply font-sans;
+  }
 }
 
 @custom-variant data-open {

@@ -35,7 +35,8 @@ export default () => {
 				})
 			const dataTable = new DataTable({
 				table: name,
-				schema: schema
+				schema: schema,
+				height: 350
 			});
 			coordinator.connect(dataTable);
 			dataTable.sql.subscribe((sql) => {

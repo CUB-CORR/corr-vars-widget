@@ -59,37 +59,39 @@
 	}
 </script>
 
-<Card.Root class="mx-2 my-4 max-w-xl bg-background font-sans text-foreground">
-	<Card.Header>
-		<Card.Title>ObsmDict</Card.Title>
-		<Card.Description>Dynamic timeseries data</Card.Description>
-		<Card.Action>
-			<Button variant="ghost" size="icon" onclick={openClose}
-				><ChevronsDownUp /><span class="sr-only">Open</span></Button
-			>
-		</Card.Action>
-	</Card.Header>
-	<Card.Content>
-		<Accordion.Root type="multiple" class="w-full" bind:value={opened}>
-			{#each tableEntries as [name, { data: table }] (name)}
-				{@const rows = tableRows[name]}
-				{@const cols = tableCols[name]}
-				<Accordion.Item value={name}>
-					<Accordion.Trigger class="group hover:no-underline"
-						><p class="flex items-center gap-2">
-							<span class="group-hover:underline">{name}</span>
-							<Badge variant="outline" class="bg-accent text-accent-foreground"
-								>{pluralise(rows, 'row')} × {pluralise(cols, 'col')}</Badge
-							>
-						</p>
-					</Accordion.Trigger>
-					<Accordion.Content class="flex flex-col gap-4 text-balance" {@attach appendTable(table)}
-					></Accordion.Content>
-				</Accordion.Item>
-			{/each}
-		</Accordion.Root>
-	</Card.Content>
-	<Card.Footer class="justify-end py-2">
-		<Badge variant="default">{pluralise(tableEntries.length, 'table')}</Badge>
-	</Card.Footer>
-</Card.Root>
+<div class="w-full p-2">
+	<Card.Root>
+		<Card.Header>
+			<Card.Title>ObsmDict</Card.Title>
+			<Card.Description>Dynamic timeseries data</Card.Description>
+			<Card.Action>
+				<Button variant="ghost" size="icon" onclick={openClose}
+					><ChevronsDownUp /><span class="sr-only">Open</span></Button
+				>
+			</Card.Action>
+		</Card.Header>
+		<Card.Content>
+			<Accordion.Root type="multiple" class="w-full" bind:value={opened}>
+				{#each tableEntries as [name, { data: table }] (name)}
+					{@const rows = tableRows[name]}
+					{@const cols = tableCols[name]}
+					<Accordion.Item value={name}>
+						<Accordion.Trigger class="group hover:no-underline"
+							><p class="flex items-center gap-2">
+								<span class="group-hover:underline">{name}</span>
+								<Badge variant="outline" class="bg-accent text-accent-foreground"
+									>{pluralise(rows, 'row')} × {pluralise(cols, 'col')}</Badge
+								>
+							</p>
+						</Accordion.Trigger>
+						<Accordion.Content class="flex flex-col gap-4 text-balance" {@attach appendTable(table)}
+						></Accordion.Content>
+					</Accordion.Item>
+				{/each}
+			</Accordion.Root>
+		</Card.Content>
+		<Card.Footer class="justify-end py-2">
+			<Badge variant="default">{pluralise(tableEntries.length, 'table')}</Badge>
+		</Card.Footer>
+	</Card.Root>
+</div>

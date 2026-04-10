@@ -73,8 +73,8 @@ def table_to_ipc(
 class ObsWidget(anywidget.AnyWidget):
     """An anywidget for displaying obs data in a table."""
 
-    _esm = bundler_assets_dir / "obs.js"
-    _css = bundler_assets_dir / "main.css"
+    _esm = bundler_assets_dir / "obs" / "obs.js"
+    _css = bundler_assets_dir / "obs" / "main.css"
 
     _table_name = traitlets.Unicode().tag(sync=True)
     _columns = traitlets.List(traitlets.Unicode()).tag(sync=True)
@@ -140,8 +140,8 @@ class ObsWidget(anywidget.AnyWidget):
 class ObsmWidget(anywidget.AnyWidget):
     """An anywidget for displaying obsm data in a table."""
 
-    _esm = bundler_assets_dir / "obsm.js"
-    _css = bundler_assets_dir / "main.css"
+    _esm = bundler_assets_dir / "obsm" / "obsm.js"
+    _css = bundler_assets_dir / "obsm" / "main.css"
 
     _tables = traitlets.List(
         traitlets.Dict(

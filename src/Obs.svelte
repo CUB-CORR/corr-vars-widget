@@ -39,18 +39,22 @@
 	}
 </script>
 
-<Card.Root class="mx-2 my-4 max-w-xl bg-background font-sans text-foreground">
-	<Card.Header>
-		<Card.Title>Obs</Card.Title>
-		<Card.Description>Static ICU stay data</Card.Description>
-		<!-- <Card.Action>
+<div class="w-full p-2">
+	<Card.Root>
+		<Card.Header>
+			<Card.Title>Obs</Card.Title>
+			<Card.Description>Static or aggregated data</Card.Description>
+			<!-- <Card.Action>
 			<Button variant="ghost" size="icon" onclick={openClose}
 				><ChevronsDownUp /><span class="sr-only">Open</span></Button
 			>
 		</Card.Action> -->
-	</Card.Header>
-	<Card.Content {@attach appendTable(data)}></Card.Content>
-	<Card.Footer class="justify-end py-2">
-		<Badge variant="default">{pluralise(tableRows, 'row')} × {pluralise(tableCols, 'col')}</Badge>
-	</Card.Footer>
-</Card.Root>
+		</Card.Header>
+		<Card.Content {@attach appendTable(data)}></Card.Content>
+		<Card.Footer class="justify-end py-2">
+			<Badge variant="outline" class="bg-accent text-accent-foreground"
+				>{pluralise(tableRows, 'row')} × {pluralise(tableCols, 'col')}</Badge
+			>
+		</Card.Footer>
+	</Card.Root>
+</div>

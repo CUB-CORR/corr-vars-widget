@@ -12,7 +12,7 @@ export const baseConfig: UserConfig = {
     plugins: [tailwindcss(), svelte()],
     build: {
         assetsDir: '',
-		outDir: './py/corr_vars_widget/static/',
+		outDir: './py/corr_vars_widget/static/obs/',
         lib: {
             entry: ["./src/obs.ts"],
             cssFileName: "main",
@@ -23,8 +23,7 @@ export const baseConfig: UserConfig = {
 				entryFileNames: `[name].js`,
 				chunkFileNames: `[name].js`,
 				assetFileNames: `[name].[ext]`,
-			},
-            preserveEntrySignatures: "allow-extension"
+			}
 		}
 	}
 }
