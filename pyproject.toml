@@ -4,15 +4,29 @@ build-backend = "hatchling.build"
 
 [project]
 name = "corr_vars_widget"
-version = "0.0.0"
-dependencies = ["anywidget"]
+version = "0.0.1"
+authors = [
+  { name="Pedram Ramezani", email="me@pedramramezani.de" },
+]
+description = "A simple AnyWidget to visualise corr_vars cohort objects."
+dependencies = ["anywidget", "duckdb", "polars", "pyarrow"]
 readme = "README.md"
 requires-python=">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/CUB-CORR/corr-vars-widget"
+Issues = "https://github.com/CUB-CORR/corr-vars-widget/issues"
 
 # Dependency groups (recognized by `uv`). For more details, visit:
 # https://peps.python.org/pep-0735/
 [dependency-groups]
-dev = ["watchfiles", "jupyterlab", "duckdb", "polars", "pyarrow"]
+dev = ["watchfiles", "jupyterlab"]
 
 [tool.hatch.build]
 only-packages = true
@@ -21,8 +35,18 @@ artifacts = ["py/corr_vars_widget/static/*"]
 
 [tool.hatch.build.hooks.jupyter-builder]
 build-function = "hatch_jupyter_builder.npm_builder"
-ensured-targets = ["py/corr_vars_widget/static/main.js"]
-skip-if-exists = ["py/corr_vars_widget/static/main.js"]
+ensured-targets = [
+    "py/corr_vars_widget/static/obs/obs.js",
+    "py/corr_vars_widget/static/obs/main.css",
+    "py/corr_vars_widget/static/obsm/obsm.js",
+    "py/corr_vars_widget/static/obsm/main.css",
+]
+skip-if-exists = [
+    "py/corr_vars_widget/static/obs/obs.js",
+    "py/corr_vars_widget/static/obs/main.css",
+    "py/corr_vars_widget/static/obsm/obsm.js",
+    "py/corr_vars_widget/static/obsm/main.css",
+]
 dependencies = ["hatch-jupyter-builder>=0.5.0"]
 
 [tool.hatch.build.hooks.jupyter-builder.build-kwargs]
