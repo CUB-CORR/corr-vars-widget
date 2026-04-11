@@ -6,7 +6,7 @@
 	import * as flech from '@uwdata/flechette';
 
 	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Button } from '$lib/components/ui/button/index.js';
+	// import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import './app.css';
 

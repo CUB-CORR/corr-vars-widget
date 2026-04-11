@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "corr_vars_widget"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
   { name="Pedram Ramezani", email="me@pedramramezani.de" },
 ]
@@ -33,7 +33,8 @@ only-packages = true
 packages = ["py/corr_vars_widget"]
 artifacts = ["py/corr_vars_widget/static/*"]
 
-[tool.hatch.build.hooks.jupyter-builder]
+[tool.hatch.build.targets.sdist.hooks.jupyter-builder]
+dependencies = ["hatch-jupyter-builder>=0.5.0"]
 build-function = "hatch_jupyter_builder.npm_builder"
 ensured-targets = [
     "py/corr_vars_widget/static/obs/obs.js",
@@ -47,8 +48,17 @@ skip-if-exists = [
     "py/corr_vars_widget/static/obsm/obsm.js",
     "py/corr_vars_widget/static/obsm/main.css",
 ]
-dependencies = ["hatch-jupyter-builder>=0.5.0"]
 
-[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+[tool.hatch.build.targets.sdist.hooks.jupyter-builder.build-kwargs]
 npm = "npm"
 build_cmd = "build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["corr_vars_widget"]
+artifacts = ["corr_vars_widget/static/*"]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true

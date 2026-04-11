@@ -30,3 +30,6 @@ __pycache__
 
 # Static files
 py/corr_vars_widget/static
+
+# Env
+*.env

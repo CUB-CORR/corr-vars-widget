@@ -85,6 +85,14 @@ class ObsWidget(anywidget.AnyWidget):
     sql = traitlets.Unicode().tag(sync=True)
 
     def __init__(self, data: pl.DataFrame, obs_level: str | None = None) -> None:
+        """
+        Initialize the ObsWidget.
+
+        Args:
+            data: A Polars DataFrame containing the observation data.
+            obs_level: An optional string representing the observation level
+                       (e.g., 'Hospital', 'ICU stay').
+        """
         table = "obs"
 
         conn = duckdb.connect(":memory:")
@@ -157,6 +165,12 @@ class ObsmWidget(anywidget.AnyWidget):
     ).tag(sync=True)
 
     def __init__(self, data: dict[str, pl.DataFrame]) -> None:
+        """
+        Initialize the ObsmWidget.
+
+        Args:
+            data: A dictionary mapping table names to Polars DataFrames.
+        """
 
         conn = duckdb.connect(":memory:")
         tables = []
@@ -222,3 +236,6 @@ class ObsmWidget(anywidget.AnyWidget):
             table["_table_name"]: self._conn.query(table["sql"])
             for table in self._tables
         }
+
+
+__all__ = ["ObsWidget", "ObsmWidget"]
