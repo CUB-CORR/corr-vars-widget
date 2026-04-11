@@ -76,13 +76,15 @@ class ObsWidget(anywidget.AnyWidget):
     _esm = bundler_assets_dir / "obs" / "obs.js"
     _css = bundler_assets_dir / "obs" / "main.css"
 
+    _obs_level = traitlets.Unicode().tag(sync=True)
+
     _table_name = traitlets.Unicode().tag(sync=True)
     _columns = traitlets.List(traitlets.Unicode()).tag(sync=True)
 
     # The SQL query for the current data (read-only)
     sql = traitlets.Unicode().tag(sync=True)
 
-    def __init__(self, data: pl.DataFrame) -> None:
+    def __init__(self, data: pl.DataFrame, obs_level: str | None = None) -> None:
         table = "obs"
 
         conn = duckdb.connect(":memory:")
@@ -94,6 +96,7 @@ class ObsWidget(anywidget.AnyWidget):
         conn.register(table, arrow_table)
         self._conn = conn
         super().__init__(
+            _obs_level=obs_level or "",
             _table_name=table,
             _columns=data.columns,
             sql=f'SELECT * FROM "{table}"',

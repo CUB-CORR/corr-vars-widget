@@ -14,6 +14,7 @@ import { isFlechetteTable } from './utils/guards';
 import { mosaicInitialise } from './utils/mosaic';
 
 type Model = {
+	_obs_level: string;
 	_table_name: string;
 	_columns: Array<string>;
 	sql: string;
@@ -28,6 +29,7 @@ export default () => {
 		async render({ model, el }: aw.RenderProps<Model>) {
 			const name = model.get("_table_name")
 			const columns =  model.get("_columns")
+			const obsLevel = model.get("_obs_level")
 
 			const schema = await getTableSchema(coordinator, {
 					tableName: name,
@@ -49,7 +51,7 @@ export default () => {
 
 			const app = mount(App, {
 				target: el,
-				props: { coordinator: coordinator, data: dataTable, schema: schema }
+				props: { coordinator: coordinator, data: dataTable, schema: schema, obsLevel: obsLevel }
 			});
 			return () => unmount(app);
 		}
