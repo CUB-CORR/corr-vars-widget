@@ -29,6 +29,7 @@ from __future__ import annotations
 import io
 import logging
 import pathlib
+import textwrap
 import time
 
 import anywidget
@@ -103,6 +104,9 @@ class ObsWidget(anywidget.AnyWidget):
         arrow_table = data.to_arrow()
         conn.register(table, arrow_table)
         self._conn = conn
+        self._shape = data.shape
+        with pl.Config(set_tbl_hide_dataframe_shape=True):
+            self._data_repr = repr(data)
         super().__init__(
             _obs_level=obs_level or "",
             _table_name=table,
@@ -110,6 +114,16 @@ class ObsWidget(anywidget.AnyWidget):
             sql=f'SELECT * FROM "{table}"',
         )
         self.on_msg(self._handle_custom_msg)
+
+    def __str__(self) -> str:
+        lines = "\n".join(
+            [
+                f'obs_level="{self._obs_level}", shape={self._shape},',
+                "data=",
+                self._data_repr,
+            ]
+        )
+        return "Obs(\n" + textwrap.indent(lines, "  ") + "\n)"
 
     def _handle_custom_msg(self, data: dict, buffers: list) -> None:
         logger.debug(f"{data=}, {buffers=}")
@@ -174,23 +188,34 @@ class ObsmWidget(anywidget.AnyWidget):
 
         conn = duckdb.connect(":memory:")
         tables = []
-        for table, data in data.items():
+        for table, df in data.items():
             # FIXME: special case pl.DataFrame for now until DuckDB
             # supports `[string,bytes]_view` Arrow data types
             # see: https://github.com/manzt/quak/issues/41
             # Polars .to_arrow() method will cast to non-view array types for us
-            arrow_table = data.to_arrow()
+            arrow_table = df.to_arrow()
             conn.register(table, arrow_table)
             tables.append(
                 {
                     "_table_name": table,
-                    "_columns": data.columns,
+                    "_columns": df.columns,
                     "sql": f'SELECT * FROM "{table}"',
                 }
             )
         self._conn = conn
+        self._shapes = {name: df.shape for name, df in data.items()}
         super().__init__(_tables=tables)
         self.on_msg(self._handle_custom_msg)
+
+    def __str__(self) -> str:
+        lines = "\n".join(
+            [f"{name}: shape={shape}" for name, shape in self._shapes.items()]
+        )
+        return (
+            "ObsmDict(\n" + textwrap.indent(lines, "  ") + "\n)"
+            if lines
+            else "ObsmDict(Ø)"
+        )
 
     def _handle_custom_msg(self, data: dict, buffers: list) -> None:
         logger.debug(f"{data=}, {buffers=}")
