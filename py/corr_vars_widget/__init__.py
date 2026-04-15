@@ -115,7 +115,7 @@ class ObsWidget(anywidget.AnyWidget):
         )
         self.on_msg(self._handle_custom_msg)
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         lines = "\n".join(
             [
                 f'obs_level="{self._obs_level}", shape={self._shape},',
@@ -207,7 +207,7 @@ class ObsmWidget(anywidget.AnyWidget):
         super().__init__(_tables=tables)
         self.on_msg(self._handle_custom_msg)
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         lines = "\n".join(
             [f"{name}: shape={shape}" for name, shape in self._shapes.items()]
         )

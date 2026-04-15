@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "corr_vars_widget"
-version = "0.0.4"
+version = "0.0.5"
 authors = [
   { name="Pedram Ramezani", email="me@pedramramezani.de" },
 ]
@@ -29,6 +29,7 @@ Issues = "https://github.com/CUB-CORR/corr-vars-widget/issues"
 dev = ["watchfiles", "jupyterlab"]
 
 [tool.hatch.build]
+dev-mode-dirs = ["py/corr_vars_widget"]
 only-packages = true
 packages = ["py/corr_vars_widget"]
 artifacts = ["py/corr_vars_widget/static/*"]
