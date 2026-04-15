@@ -449,33 +449,35 @@ wheels = [
 
 [[package]]
 name = "corr-vars-widget"
-version = "0.0.0"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "anywidget" },
-]
-
-[package.dev-dependencies]
-dev = [
     { name = "duckdb", version = "1.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "duckdb", version = "1.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "jupyterlab" },
     { name = "polars", version = "1.36.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "polars", version = "1.39.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pyarrow", version = "23.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "jupyterlab" },
     { name = "watchfiles" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "anywidget" }]
+requires-dist = [
+    { name = "anywidget" },
+    { name = "duckdb" },
+    { name = "polars" },
+    { name = "pyarrow" },
+]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "duckdb" },
     { name = "jupyterlab" },
-    { name = "polars" },
-    { name = "pyarrow" },
     { name = "watchfiles" },
 ]
 

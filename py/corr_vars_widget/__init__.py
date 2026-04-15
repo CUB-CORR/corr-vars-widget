@@ -105,8 +105,7 @@ class ObsWidget(anywidget.AnyWidget):
         conn.register(table, arrow_table)
         self._conn = conn
         self._shape = data.shape
-        with pl.Config(set_tbl_hide_dataframe_shape=True):
-            self._data_repr = repr(data)
+        self._data = data
         super().__init__(
             _obs_level=obs_level or "",
             _table_name=table,
@@ -116,11 +115,13 @@ class ObsWidget(anywidget.AnyWidget):
         self.on_msg(self._handle_custom_msg)
 
     def __repr__(self) -> str:
+        with pl.Config(set_tbl_hide_dataframe_shape=True):
+            _data_repr = repr(self._data)
         lines = "\n".join(
             [
                 f'obs_level="{self._obs_level}", shape={self._shape},',
                 "data=",
-                self._data_repr,
+                _data_repr,
             ]
         )
         return "Obs(\n" + textwrap.indent(lines, "  ") + "\n)"

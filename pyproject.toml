@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "corr_vars_widget"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
   { name="Pedram Ramezani", email="me@pedramramezani.de" },
 ]
