@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import io
 import logging
 import pathlib
@@ -39,17 +40,13 @@ import pyarrow as pa
 import pyarrow.feather as feather
 import traitlets
 
-import pathlib
-
-import anywidget
-import traitlets
-
-bundler_assets_dir = pathlib.Path(__file__).parent / "static"
+from typing import Final
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-SLOW_QUERY_THRESHOLD = 5000
+BUNDLER_ASSETS_DIR: Final = pathlib.Path(__file__).parent / "static"
+SLOW_QUERY_THRESHOLD: Final = 5000
 
 
 def table_to_ipc(
@@ -74,10 +71,11 @@ def table_to_ipc(
 class ObsWidget(anywidget.AnyWidget):
     """An anywidget for displaying obs data in a table."""
 
-    _esm = bundler_assets_dir / "obs" / "obs.js"
-    _css = bundler_assets_dir / "obs" / "main.css"
+    _esm = BUNDLER_ASSETS_DIR / "obs" / "obs.js"
+    _css = BUNDLER_ASSETS_DIR / "obs" / "main.css"
 
     _obs_level = traitlets.Unicode().tag(sync=True)
+    _creation_time = traitlets.Float(allow_none=True).tag(sync=True)
 
     _table_name = traitlets.Unicode().tag(sync=True)
     _columns = traitlets.List(traitlets.Unicode()).tag(sync=True)
@@ -85,7 +83,12 @@ class ObsWidget(anywidget.AnyWidget):
     # The SQL query for the current data (read-only)
     sql = traitlets.Unicode().tag(sync=True)
 
-    def __init__(self, data: pl.DataFrame, obs_level: str | None = None) -> None:
+    def __init__(
+        self,
+        data: pl.DataFrame,
+        obs_level: str | None = None,
+        creation_time: datetime | None = None,
+    ) -> None:
         """
         Initialize the ObsWidget.
 
@@ -108,6 +111,7 @@ class ObsWidget(anywidget.AnyWidget):
         self._data = data
         super().__init__(
             _obs_level=obs_level or "",
+            _creation_time=creation_time.timestamp() if creation_time else None,
             _table_name=table,
             _columns=data.columns,
             sql=f'SELECT * FROM "{table}"',
@@ -166,8 +170,8 @@ class ObsWidget(anywidget.AnyWidget):
 class ObsmWidget(anywidget.AnyWidget):
     """An anywidget for displaying obsm data in a table."""
 
-    _esm = bundler_assets_dir / "obsm" / "obsm.js"
-    _css = bundler_assets_dir / "obsm" / "main.css"
+    _esm = BUNDLER_ASSETS_DIR / "obsm" / "obsm.js"
+    _css = BUNDLER_ASSETS_DIR / "obsm" / "main.css"
 
     _tables = traitlets.List(
         traitlets.Dict(

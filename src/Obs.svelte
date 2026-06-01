@@ -14,12 +14,14 @@
 		coordinator,
 		data,
 		schema,
-		obsLevel
+		obsLevel,
+		creationTime
 	}: {
 		coordinator: mc.Coordinator;
 		data: DataTable;
 		schema: flech.Schema;
 		obsLevel: string;
+		creationTime: Date | null;
 	} = $props();
 
 	let tableCols = $derived(schema.fields.length);
@@ -38,6 +40,31 @@
 		return (node: HTMLElement) => {
 			node.appendChild(table.node());
 		};
+	}
+
+	function formatDate(date: Date | string | number): string {
+		var d = new Date(date),
+			month = '' + (d.getMonth() + 1),
+			day = '' + d.getDate(),
+			year = d.getFullYear();
+
+		if (month.length < 2) month = '0' + month;
+		if (day.length < 2) day = '0' + day;
+
+		return [year, month, day].join('-');
+	}
+
+	function formatTime(date: Date | string | number): string {
+		var d = new Date(date),
+			h = '' + d.getHours(),
+			min = '' + d.getMinutes(),
+			sec = '' + d.getSeconds();
+
+		if (h.length < 2) h = '0' + h;
+		if (min.length < 2) min = '0' + min;
+		if (sec.length < 2) sec = '0' + sec;
+
+		return [h, min, sec].join(':');
 	}
 
 	// type FieldId =
@@ -139,12 +166,20 @@
 				{/each}
 			</div> -->
 		</Card.Content>
-		<Card.Footer class="justify-between gap-2 py-2">
-			<span class="text-xs font-medium text-muted-foreground">
+		<Card.Footer class="items-center justify-between gap-2 py-2">
+			<p class="flex flex-col font-medium text-muted-foreground">
 				{#if obsLevel}
-					Obs Level – {obsLevel}
+					<span>
+						Obs Level – {obsLevel}
+					</span>
 				{/if}
-			</span>
+				{#if creationTime}
+					<span class="text-[0.8em] text-muted-foreground">
+						Created at {formatDate(creationTime)}
+						{formatTime(creationTime)}
+					</span>
+				{/if}
+			</p>
 			<Badge variant="outline" class="bg-accent text-accent-foreground"
 				>{pluralise(tableRows, 'row')} × {pluralise(tableCols, 'col')}</Badge
 			>

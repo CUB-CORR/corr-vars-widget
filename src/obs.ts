@@ -15,6 +15,7 @@ import { mosaicInitialise } from './utils/mosaic';
 
 type Model = {
 	_obs_level: string;
+	_creation_time: number | null;
 	_table_name: string;
 	_columns: Array<string>;
 	sql: string;
@@ -30,6 +31,7 @@ export default () => {
 			const name = model.get("_table_name")
 			const columns =  model.get("_columns")
 			const obsLevel = model.get("_obs_level")
+			const creationTime = model.get("_creation_time")
 
 			const schema = await getTableSchema(coordinator, {
 					tableName: name,
@@ -51,7 +53,7 @@ export default () => {
 
 			const app = mount(App, {
 				target: el,
-				props: { coordinator: coordinator, data: dataTable, schema: schema, obsLevel: obsLevel }
+				props: { coordinator: coordinator, data: dataTable, schema: schema, obsLevel: obsLevel, creationTime: creationTime ? new Date(creationTime * 1000) : null }
 			});
 			return () => unmount(app);
 		}
