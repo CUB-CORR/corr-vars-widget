@@ -6,10 +6,12 @@
   "scripts": {
     "dev:obs": "vite build --watch --config vite.obs.dev.config.js",
     "dev:obsm": "vite build --watch --config vite.obsm.dev.config.js",
-    "dev": "npm-run-all --parallel dev:obs dev:obsm",
+    "dev:json": "vite build --watch --config vite.json.dev.config.js",
+    "dev": "npm-run-all --parallel dev:obs dev:obsm dev:json",
     "build:obs": "vite build --config vite.obs.config.js",
     "build:obsm": "vite build --config vite.obsm.config.js",
-    "build": "npm-run-all build:obs build:obsm",
+    "build:json": "vite build --config vite.json.config.js",
+    "build": "npm-run-all build:obs build:obsm build:json",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "lint": "prettier --check .",
     "format": "prettier --write ."

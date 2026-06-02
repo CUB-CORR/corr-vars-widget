@@ -4,6 +4,10 @@ An collection of [AnyWidget](https://anywidget.dev/) for the `corr_vars` package
 
 ## Widgets
 
+### JsonWidget
+
+Displays a JSON object.
+
 ### ObsWidget
 
 Displays a `polars.DataFrame` in a [Quak Widget](https://github.com/manzt/quak) with additional infos about the shape and the observation level.

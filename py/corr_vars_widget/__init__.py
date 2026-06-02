@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import io
+import json
 import logging
 import pathlib
 import textwrap
@@ -268,4 +269,25 @@ class ObsmWidget(anywidget.AnyWidget):
         }
 
 
-__all__ = ["ObsWidget", "ObsmWidget"]
+class JsonWidget(anywidget.AnyWidget):
+    """An anywidget for displaying json data"""
+
+    _esm = BUNDLER_ASSETS_DIR / "json" / "json.js"
+    _css = BUNDLER_ASSETS_DIR / "json" / "main.css"
+
+    json = traitlets.Unicode().tag(sync=True)
+
+    def __init__(
+        self,
+        data: object | str,
+    ) -> None:
+        """
+        Initialize the JsonWidget.
+
+        Args:
+            data: A JSON-serializable object or a JSON string.
+        """
+        super().__init__(json=json.dumps(data) if not isinstance(data, str) else data)
+
+
+__all__ = ["ObsWidget", "ObsmWidget", "JsonWidget"]
