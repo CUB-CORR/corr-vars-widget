@@ -16,6 +16,10 @@ Displays a list of `polars.DataFrame` in [Quak Widgets](https://github.com/manzt
 
 Displays a searchable JSON viewer (filtering the keys of the first level). The JSON object is displayed in a collapsible view.
 
+### JsonmWidget
+
+Displays a dict of JSON objects in collapsible accordions. A shared search bar filters the first-level keys across all JSON views.
+
 ## Development
 
 Development requires [`uv`](https://github.com/astral-sh/uv) and

@@ -290,4 +290,29 @@ class JsonWidget(anywidget.AnyWidget):
         super().__init__(json=json.dumps(data) if not isinstance(data, str) else data)
 
 
-__all__ = ["ObsWidget", "ObsmWidget", "JsonWidget"]
+class JsonmWidget(anywidget.AnyWidget):
+    """An anywidget for displaying a dict of JSON entries in an accordion view."""
+
+    _esm = BUNDLER_ASSETS_DIR / "jsonm" / "jsonm.js"
+    _css = BUNDLER_ASSETS_DIR / "jsonm" / "main.css"
+
+    _jsons = traitlets.Dict(
+        value_trait=traitlets.Unicode(),
+        key_trait=traitlets.Unicode(),
+    ).tag(sync=True)
+
+    def __init__(self, data: dict[str, object | str]) -> None:
+        """
+        Initialize the JsonmWidget.
+
+        Args:
+            data: A dictionary mapping names to JSON-serializable objects or JSON strings.
+        """
+        items = {
+            key: value if isinstance(value, str) else json.dumps(value)
+            for key, value in data.items()
+        }
+        super().__init__(_jsons=items)
+
+
+__all__ = ["ObsWidget", "ObsmWidget", "JsonWidget", "JsonmWidget"]

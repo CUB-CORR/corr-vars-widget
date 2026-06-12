@@ -21,6 +21,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-  },
-  "include": ["vite.obsm.config.ts"]
+  }
 }
