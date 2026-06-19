@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.9] - 2026-06-19
+
+### Changed
+- `ObsmWidget` and `JsonmWidget` constructors now accept any `Mapping` instead of `dict`.
+
 ## [0.0.8] - 2026-06-11
 
 ### Added

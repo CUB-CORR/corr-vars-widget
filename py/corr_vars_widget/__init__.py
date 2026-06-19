@@ -41,6 +41,7 @@ import pyarrow as pa
 import pyarrow.feather as feather
 import traitlets
 
+from collections.abc import Mapping
 from typing import Final
 
 logger = logging.getLogger(__name__)
@@ -184,7 +185,7 @@ class ObsmWidget(anywidget.AnyWidget):
         )
     ).tag(sync=True)
 
-    def __init__(self, data: dict[str, pl.DataFrame]) -> None:
+    def __init__(self, data: Mapping[str, pl.DataFrame]) -> None:
         """
         Initialize the ObsmWidget.
 
@@ -301,7 +302,7 @@ class JsonmWidget(anywidget.AnyWidget):
         key_trait=traitlets.Unicode(),
     ).tag(sync=True)
 
-    def __init__(self, data: dict[str, object | str]) -> None:
+    def __init__(self, data: Mapping[str, object | str]) -> None:
         """
         Initialize the JsonmWidget.
 
