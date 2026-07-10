@@ -22,6 +22,7 @@ license-files = ["LICEN[CS]E*"]
 [project.urls]
 Homepage = "https://github.com/CUB-CORR/corr-vars-widget"
 Issues = "https://github.com/CUB-CORR/corr-vars-widget/issues"
+Changelog = "https://github.com/CUB-CORR/corr-vars-widget/blob/main/CHANGELOG.md"
 
 # Dependency groups (recognized by `uv`). For more details, visit:
 # https://peps.python.org/pep-0735/

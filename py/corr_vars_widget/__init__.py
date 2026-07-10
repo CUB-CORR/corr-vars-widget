@@ -70,7 +70,49 @@ def table_to_ipc(
     return sink.getbuffer()
 
 
-class ObsWidget(anywidget.AnyWidget):
+class _DuckDBQueryMixin:
+    """Serves Mosaic query requests from a DuckDB connection.
+
+    Subclasses must set `self._conn` before calling `self.on_msg`.
+    """
+
+    _conn: duckdb.DuckDBPyConnection
+
+    def _handle_custom_msg(self, data: dict, buffers: list) -> None:
+        logger.debug(f"{data=}, {buffers=}")
+
+        start = time.time()
+
+        uuid = data["uuid"]
+        sql = data["sql"]
+        command = data["type"]
+        try:
+            if command == "arrow":
+                result = self._conn.query(sql).arrow()
+                buf = table_to_ipc(result)
+                self.send({"type": "arrow", "uuid": uuid}, buffers=[buf])
+            elif command == "exec":
+                self._conn.execute(sql)
+                self.send({"type": "exec", "uuid": uuid})
+            elif command == "json":
+                # Avoid DuckDB's `.df()`, which pulls in pandas and numpy.
+                result = self._conn.query(sql)
+                records = [dict(zip(result.columns, row)) for row in result.fetchall()]
+                self.send({"type": "json", "uuid": uuid, "result": records})
+            else:
+                raise ValueError(f"Unknown command {command}")
+        except Exception as e:
+            logger.exception("Error processing query")
+            self.send({"error": str(e), "uuid": uuid})
+
+        total = round((time.time() - start) * 1_000)
+        if total > SLOW_QUERY_THRESHOLD:
+            logger.warning(f"DONE. Slow query {uuid} took {total} ms.\n{sql}")
+        else:
+            logger.info(f"DONE. Query {uuid} took {total} ms.\n{sql}")
+
+
+class ObsWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
     """An anywidget for displaying obs data in a table."""
 
     _esm = BUNDLER_ASSETS_DIR / "obs" / "obs.js"
@@ -132,44 +174,12 @@ class ObsWidget(anywidget.AnyWidget):
         )
         return "Obs(\n" + textwrap.indent(lines, "  ") + "\n)"
 
-    def _handle_custom_msg(self, data: dict, buffers: list) -> None:
-        logger.debug(f"{data=}, {buffers=}")
-
-        start = time.time()
-
-        uuid = data["uuid"]
-        sql = data["sql"]
-        command = data["type"]
-        try:
-            if command == "arrow":
-                result = self._conn.query(sql).arrow()
-                buf = table_to_ipc(result)
-                self.send({"type": "arrow", "uuid": uuid}, buffers=[buf])
-            elif command == "exec":
-                self._conn.execute(sql)
-                self.send({"type": "exec", "uuid": uuid})
-            elif command == "json":
-                result = self._conn.query(sql).df()
-                json = result.to_dict(orient="records")
-                self.send({"type": "json", "uuid": uuid, "result": json})
-            else:
-                raise ValueError(f"Unknown command {command}")
-        except Exception as e:
-            logger.exception("Error processing query")
-            self.send({"error": str(e), "uuid": uuid})
-
-        total = round((time.time() - start) * 1_000)
-        if total > SLOW_QUERY_THRESHOLD:
-            logger.warning(f"DONE. Slow query {uuid} took {total} ms.\n{sql}")
-        else:
-            logger.info(f"DONE. Query {uuid} took {total} ms.\n{sql}")
-
     def data(self) -> duckdb.DuckDBPyRelation:
         """Return the current SQL as a DuckDB relation."""
         return self._conn.query(self.sql)
 
 
-class ObsmWidget(anywidget.AnyWidget):
+class ObsmWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
     """An anywidget for displaying obsm data in a table."""
 
     _esm = BUNDLER_ASSETS_DIR / "obsm" / "obsm.js"
@@ -224,38 +234,6 @@ class ObsmWidget(anywidget.AnyWidget):
             else "ObsmDict(Ø)"
         )
 
-    def _handle_custom_msg(self, data: dict, buffers: list) -> None:
-        logger.debug(f"{data=}, {buffers=}")
-
-        start = time.time()
-
-        uuid = data["uuid"]
-        sql = data["sql"]
-        command = data["type"]
-        try:
-            if command == "arrow":
-                result = self._conn.query(sql).arrow()
-                buf = table_to_ipc(result)
-                self.send({"type": "arrow", "uuid": uuid}, buffers=[buf])
-            elif command == "exec":
-                self._conn.execute(sql)
-                self.send({"type": "exec", "uuid": uuid})
-            elif command == "json":
-                result = self._conn.query(sql).df()
-                json = result.to_dict(orient="records")
-                self.send({"type": "json", "uuid": uuid, "result": json})
-            else:
-                raise ValueError(f"Unknown command {command}")
-        except Exception as e:
-            logger.exception("Error processing query")
-            self.send({"error": str(e), "uuid": uuid})
-
-        total = round((time.time() - start) * 1_000)
-        if total > SLOW_QUERY_THRESHOLD:
-            logger.warning(f"DONE. Slow query {uuid} took {total} ms.\n{sql}")
-        else:
-            logger.info(f"DONE. Query {uuid} took {total} ms.\n{sql}")
-
     @property
     def sql(self) -> dict[str, str]:
         """Return the current SQL as a DuckDB relation."""
@@ -267,6 +245,138 @@ class ObsmWidget(anywidget.AnyWidget):
         return {
             table["_table_name"]: self._conn.query(table["sql"])
             for table in self._tables
+        }
+
+
+def _quote(identifier: str) -> str:
+    """Quote a SQL identifier, escaping any embedded double quotes."""
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
+
+
+class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
+    """An anywidget plotting per-ID timeseries with vgplot.
+
+    Interval tables are drawn as Gantt-style lanes in a single shared plot, one
+    lane per table. Value tables are drawn as small line charts stacked beneath
+    it, one plot per table. All plots share an x scale and are filtered down to
+    a single ID chosen from a menu.
+    """
+
+    _esm = BUNDLER_ASSETS_DIR / "timeseries" / "timeseries.js"
+    _css = BUNDLER_ASSETS_DIR / "timeseries" / "main.css"
+
+    # DuckDB config: the registered table names the JS side references via
+    # vgplot's `from()`, plus the columns that make up the plot encodings.
+    _intervals = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    _values = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    _ids_table = traitlets.Unicode().tag(sync=True)
+
+    _id_col = traitlets.Unicode().tag(sync=True)
+    _start_col = traitlets.Unicode().tag(sync=True)
+    _end_col = traitlets.Unicode().tag(sync=True)
+    _value_col = traitlets.Unicode().tag(sync=True)
+
+    # Whether `start_col` is a date/time, so the JS side can rebuild the shared
+    # x domain as Dates rather than plain numbers.
+    _temporal = traitlets.Bool().tag(sync=True)
+    _initial_id = traitlets.Any(allow_none=True).tag(sync=True)
+
+    def __init__(
+        self,
+        intervals: Mapping[str, pl.DataFrame] | None = None,
+        values: Mapping[str, pl.DataFrame] | None = None,
+        id_col: str = "id",
+        start_col: str = "start",
+        end_col: str = "end",
+        value_col: str = "value",
+    ) -> None:
+        """
+        Initialize the TimeseriesWidget.
+
+        Args:
+            intervals: Tables with a start and an end, drawn as one lane each.
+                       The dict key labels the lane.
+            values: Tables with a single timestamp per row, drawn as one line
+                    plot each. The dict key labels the plot.
+            id_col: Column identifying the entity (e.g. a stay), present in
+                    every table. Drives the menu and filters every plot.
+            start_col: Timestamp column starting an interval / locating a value.
+            end_col: Timestamp column ending an interval. Interval tables only.
+            value_col: Column plotted on the y axis (values) or used as the
+                       fill and label (intervals).
+        """
+        intervals = dict(intervals or {})
+        values = dict(values or {})
+        if not intervals and not values:
+            raise ValueError("Pass at least one interval or value table.")
+
+        overlap = intervals.keys() & values.keys()
+        if overlap:
+            raise ValueError(
+                f"Table names must be unique across intervals and values: {sorted(overlap)}"
+            )
+
+        conn = duckdb.connect(":memory:")
+        for name, df, required in [
+            *((n, d, (id_col, start_col, end_col, value_col)) for n, d in intervals.items()),
+            *((n, d, (id_col, start_col, value_col)) for n, d in values.items()),
+        ]:
+            missing = [col for col in required if col not in df.columns]
+            if missing:
+                raise ValueError(f"Table {name!r} is missing column(s): {missing}")
+            # FIXME: special case pl.DataFrame for now until DuckDB
+            # supports `[string,bytes]_view` Arrow data types
+            # see: https://github.com/manzt/quak/issues/41
+            # Polars .to_arrow() method will cast to non-view array types for us
+            conn.register(name, df.to_arrow())
+
+        # A view of every ID across every table, so the menu offers the full
+        # set even when an ID is absent from some of them.
+        ids_table = "__ids"
+        union = " UNION ALL ".join(
+            f"SELECT {_quote(id_col)} FROM {_quote(name)}"
+            for name in (*intervals, *values)
+        )
+        conn.execute(
+            f"CREATE VIEW {_quote(ids_table)} AS "
+            f"SELECT DISTINCT {_quote(id_col)} FROM ({union}) "
+            f"WHERE {_quote(id_col)} IS NOT NULL "
+            f"ORDER BY {_quote(id_col)}"
+        )
+        first = conn.execute(f"SELECT * FROM {_quote(ids_table)} LIMIT 1").fetchone()
+
+        any_df = next(iter({**intervals, **values}.values()))
+
+        self._conn = conn
+        self._shapes = {
+            name: df.shape for name, df in (*intervals.items(), *values.items())
+        }
+        super().__init__(
+            _intervals=list(intervals),
+            _values=list(values),
+            _ids_table=ids_table,
+            _id_col=id_col,
+            _start_col=start_col,
+            _end_col=end_col,
+            _value_col=value_col,
+            _temporal=any_df.schema[start_col].is_temporal(),
+            _initial_id=first[0] if first else None,
+        )
+        self.on_msg(self._handle_custom_msg)
+
+    def __repr__(self) -> str:
+        lines = "\n".join(
+            [f"{name}: shape={shape}" for name, shape in self._shapes.items()]
+        )
+        return "Timeseries(\n" + textwrap.indent(lines, "  ") + "\n)"
+
+    @property
+    def data(self) -> dict[str, duckdb.DuckDBPyRelation]:
+        """Return each registered table as a DuckDB relation."""
+        return {
+            name: self._conn.query(f"SELECT * FROM {_quote(name)}")
+            for name in (*self._intervals, *self._values)
         }
 
 
@@ -316,4 +426,10 @@ class JsonmWidget(anywidget.AnyWidget):
         super().__init__(_jsons=items)
 
 
-__all__ = ["ObsWidget", "ObsmWidget", "JsonWidget", "JsonmWidget"]
+__all__ = [
+    "ObsWidget",
+    "ObsmWidget",
+    "TimeseriesWidget",
+    "JsonWidget",
+    "JsonmWidget",
+]
