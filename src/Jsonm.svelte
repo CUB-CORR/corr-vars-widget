@@ -100,7 +100,9 @@
 									{#if hasMatch}
 										<JsonView json={filtered} depth={1} />
 									{:else}
-										<div class="grid h-full place-items-center text-2xl">No matching keys found.</div>
+										<div class="grid h-full place-items-center text-2xl">
+											No matching keys found.
+										</div>
 									{/if}
 								</ScrollArea>
 							</Accordion.Content>

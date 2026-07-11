@@ -1,11 +1,12 @@
 <script lang="ts">
 	import type { Attachment } from 'svelte/attachments';
 	import type * as mc from '@uwdata/mosaic-core';
-	import { clauseInterval } from '@uwdata/mosaic-core';
+	import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
 	import { createAPIContext } from '@uwdata/vgplot';
 
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
+	import IdNavigator from '$lib/components/composed/IdNavigator.svelte';
 	import './app.css';
 
 	let {
@@ -17,12 +18,13 @@
 		startCol,
 		endCol,
 		valueCol,
+		colorCol,
 		temporal,
 		initialId,
 		width = 900,
 		laneHeight = 28,
 		valueHeight = 90,
-		marginLeft = 120,
+		marginLeft,
 		marginRight = 12,
 		overview = true
 	}: {
@@ -34,6 +36,7 @@
 		startCol: string;
 		endCol: string;
 		valueCol: string;
+		colorCol?: string;
 		temporal: boolean;
 		initialId: string | number | null;
 		width?: number;
@@ -50,15 +53,47 @@
 	// per-widget one backed by this widget's DuckDB connection.
 	const vg = createAPIContext({ coordinator });
 
-	// Narrows the menu's options; the menu in turn picks the single ID that
-	// every plot is filtered by.
-	const searchSel = vg.Selection.intersect();
+	// The combobox picks the single ID that every plot is filtered by.
 	const idSel = vg.Selection.single();
+	const idSource = {}; // stable clause source for the selected ID
 
-	const hasValues = values.length > 0;
+	/** Set the selected ID; drives every plot's `filterBy`. */
+	function selectId(id: string | number): void {
+		idSel.update(clausePoint(idCol, id, { source: idSource }));
+	}
+
+	/** Server-side ID lookup for the combobox (there may be thousands). */
+	async function searchIds(query: string): Promise<Array<string | number>> {
+		const filter = query
+			? `WHERE CAST(${quote(idCol)} AS VARCHAR) ILIKE ${vg.literal('%' + query + '%')}`
+			: '';
+		const rows = (await coordinator.query(
+			`SELECT ${quote(idCol)} AS id FROM ${quote(idsTable)} ${filter} ORDER BY ${quote(idCol)} LIMIT 100`,
+			{ type: 'json' }
+		)) as Array<{ id: string | number }>;
+		return rows.map((r) => r.id);
+	}
+
+	/** The previous (-1) or next (+1) ID in sorted order, or null at an edge. */
+	async function neighborId(id: string | number, dir: -1 | 1): Promise<string | number | null> {
+		const cmp = dir < 0 ? '<' : '>';
+		const ord = dir < 0 ? 'DESC' : 'ASC';
+		const rows = (await coordinator.query(
+			`SELECT ${quote(idCol)} AS id FROM ${quote(idsTable)} WHERE ${quote(idCol)} ${cmp} ${vg.literal(id)} ORDER BY ${quote(idCol)} ${ord} LIMIT 1`,
+			{ type: 'json' }
+		)) as Array<{ id: string | number }>;
+		return rows.length ? rows[0].id : null;
+	}
+
+	let selectedId = $derived<string | number | null>(initialId);
+	// Portal target for the combobox popover, so it stays inside the widget DOM
+	// (this template may render in a shadow root).
+	let rootEl = $state<HTMLElement>();
+
+	const hasValues = $derived(values.length > 0);
 	// The overview is useful whenever there is anything on the timeline, whether
 	// that is interval bars, value dots, or both.
-	const showOverview = overview && (intervals.length > 0 || values.length > 0);
+	const showOverview = $derived(overview && (intervals.length > 0 || values.length > 0));
 
 	// Every lane and value chart shares this x domain, so panning or zooming any
 	// one of them moves them all together. `single` keeps only the latest pan /
@@ -68,12 +103,52 @@
 	const fullDomain = vg.Param.value(undefined);
 	const resetSource = {}; // stable clause source for resetting the shared domain
 
-	// Interval bars alternate between two chart colours; the value charts use the
-	// primary colour. `isColor` in mosaic treats `var(...)` as a constant, so
-	// these read as colours rather than column references.
-	const barColors = ['var(--chart-1)', 'var(--chart-3)'];
+	// Interval colours are resolved per row in SQL and passed through an identity
+	// colour scale. Fill alternates two chart colours by category (or uses the
+	// optional `colorCol`, falling back to the palette where null); the border is
+	// that fill darkened ~40% via color-mix. Plot shares one colour scale between
+	// fill and stroke, so computing them per row is the only way to differ them.
+	const chartFallback = () =>
+		vg.sql`CASE (DENSE_RANK() OVER (ORDER BY ${vg.column(valueCol)}) - 1) % 2 WHEN 0 THEN 'var(--chart-1)' ELSE 'var(--chart-2)' END`;
+	const fillColor = () =>
+		colorCol ? vg.sql`COALESCE(${vg.column(colorCol)}, ${chartFallback()})` : chartFallback();
+	const strokeColor = () => vg.sql`('color-mix(in oklab, ' || ${fillColor()} || ' 60%, #000)')`;
 
-	const toX = temporal ? (v: number) => new Date(v) : (v: number) => v;
+	// Measure with Plot's own axis font (it hard-sets `system-ui` 10px on the
+	// SVG root), so the gutter width and the ellipsis match what actually renders.
+	const measureCtx = document.createElement('canvas').getContext('2d');
+	if (measureCtx) measureCtx.font = '10px system-ui, sans-serif';
+	const textWidth = (t: string): number =>
+		measureCtx ? measureCtx.measureText(t).width : t.length * 6;
+
+	/** Truncate with an ellipsis so a label fits `maxPx` at the axis font. */
+	function ellipsize(text: string, maxPx: number): string {
+		if (textWidth(text) <= maxPx) return text;
+		let lo = 0;
+		let hi = text.length;
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1;
+			if (textWidth(text.slice(0, mid) + '…') <= maxPx) lo = mid;
+			else hi = mid - 1;
+		}
+		return text.slice(0, lo).trimEnd() + '…';
+	}
+
+	// Auto-size the left gutter to the longest lane name so the (right-aligned)
+	// y-axis labels sit against the axis without a hand-tuned margin: no clipping
+	// on the left, no crowding the bars on the right. Floored for numeric ticks
+	// and capped so one very long name cannot swallow the plot; names past the cap
+	// are ellipsised (see `yTickFormat`). The same value goes to every plot,
+	// keeping their x axes aligned.
+	const gutter = $derived(
+		marginLeft ??
+			Math.min(
+				200,
+				Math.max(48, Math.ceil(intervals.reduce((m, l) => Math.max(m, textWidth(l)), 0)) + 16)
+			)
+	);
+
+	const toX = $derived(temporal ? (v: number) => new Date(v) : (v: number) => v);
 
 	const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
 
@@ -112,8 +187,22 @@
 		domainSel.update(clauseInterval(vg.column(startCol), domain, { source: resetSource }));
 	}
 
-	// The menu republishes `initialId` on mount, which drives the first reset.
 	idSel.addEventListener('value', resetDomain);
+	$effect(() => {
+		// Seed the initial selection, which drives the first reset and filters marks.
+		if (initialId != null) selectId(initialId);
+	});
+
+	/** A timestamp formatted like "2024-02-12 07:00" (or the raw value if not a date). */
+	const fmtTime = (c: string) =>
+		temporal
+			? vg.sql`strftime(${vg.column(c)}, '%Y-%m-%d %H:%M')`
+			: vg.sql`CAST(${vg.column(c)} AS VARCHAR)`;
+
+	/** Interval tooltip: the value on one line, the time range on the next. */
+	function intervalTitle() {
+		return vg.sql`${vg.column(valueCol)} || chr(10) || ${fmtTime(startCol)} || ' – ' || ${fmtTime(endCol)}`;
+	}
 
 	/** All interval tables as lanes of a single plot, sharing one x scale. */
 	function intervalPlot() {
@@ -129,26 +218,30 @@
 					x1: startCol,
 					x2: endCol,
 					y: lane,
-					fill: valueCol,
+					fill: fillColor(),
 					// Semi-transparent so overlapping intervals in a lane read as
 					// darker bands rather than hiding one another.
 					fillOpacity: 0.7,
-					stroke: 'var(--foreground)',
-					strokeWidth: 0.5,
-					strokeOpacity: 0.35,
+					// Border is the fill darkened ~40%, for a crisp edge.
+					stroke: strokeColor(),
+					strokeWidth: 1,
 					inset: 3,
 					tip: true,
-					title: valueCol,
+					// Plot shows only the title channel, so pack value + range into it.
+					title: intervalTitle(),
 					clip: true
 				}),
 				vg.text(source, {
 					x: midpoint,
 					y: lane,
 					text: valueCol,
-					// White fill + `mix-blend-mode: difference` (applied in CSS) keeps
-					// the label legible on any bar colour without a halo: the text is
-					// painted as the inverse of whatever is behind it.
-					fill: 'white',
+					// Dark text with a background-coloured halo (drawn first via
+					// paint-order) stays legible over any bar colour.
+					fill: 'var(--foreground)',
+					stroke: 'var(--background)',
+					strokeWidth: 2,
+					strokeLinejoin: 'round',
+					paintOrder: 'stroke',
 					fontSize: 9,
 					pointerEvents: 'none',
 					clip: true
@@ -160,15 +253,18 @@
 			marks,
 			vg.width(width),
 			vg.height(intervals.length * laneHeight + 60),
-			vg.marginLeft(marginLeft),
+			vg.marginLeft(gutter),
 			vg.marginRight(marginRight),
 			vg.marginBottom(hasValues ? 10 : 40),
 			vg.xAxis(hasValues ? null : 'bottom'),
 			vg.xLabel(null),
 			vg.yDomain(intervals),
 			vg.yLabel(null),
+			// Ellipsise lane names that exceed the (capped) gutter.
+			vg.yTickFormat((d: unknown) => ellipsize(String(d), gutter - 12)),
 			vg.yPadding(0.2),
-			vg.colorRange(barColors),
+			// Colours are already resolved per row, so pass them through as-is.
+			vg.colorScale('identity'),
 			vg.grid(true),
 			// Shares `domainSel` with the value charts, so drag-pan and wheel-zoom
 			// move the lanes and the charts together.
@@ -204,19 +300,27 @@
 				stroke: 'var(--primary)',
 				strokeWidth: 1.2,
 				r: 2.5,
-				tip: true,
+				// Default multi-channel tip (bold field names). Format the time to
+				// "2024-02-12 07:00" — in UTC, like DuckDB's strftime — rather than
+				// Plot's default ISO string.
+				tip: temporal
+					? { format: { x: (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ') } }
+					: true,
 				clip: true
 			}),
 			vg.width(width),
-			vg.height(valueHeight),
-			vg.marginLeft(marginLeft),
+			// The last chart carries the x axis, which needs a bigger bottom margin.
+			// Grow its total height by the same amount so every chart keeps an equal
+			// *plotted* area (height − margins) rather than shrinking the last one.
+			vg.height(valueHeight + (last ? 32 : 0)),
+			vg.marginLeft(gutter),
 			vg.marginRight(marginRight),
 			vg.marginBottom(last ? 40 : 8),
 			vg.xAxis(last ? 'bottom' : null),
 			vg.xLabel(null),
-			vg.yLabel(table),
-			// Horizontal label sitting next to the axis, instead of a rotated one
-			// stranded out in the left margin.
+			// Horizontal label next to the axis (not a rotated one stranded in the
+			// margin), ellipsised so a long series name can't run across the chart.
+			vg.yLabel(ellipsize(table, 200)),
 			vg.yLabelAnchor('top'),
 			// A little headroom so the clip does not shave the top marker, which
 			// otherwise sits flush against the frame edge.
@@ -242,7 +346,7 @@
 				x1: startCol,
 				x2: endCol,
 				y: lane,
-				fill: valueCol,
+				fill: fillColor(),
 				fillOpacity: 0.35,
 				clip: true
 			})
@@ -264,7 +368,7 @@
 			[...barMarks, ...dotMarks],
 			vg.width(width),
 			vg.height(34),
-			vg.marginLeft(marginLeft),
+			vg.marginLeft(gutter),
 			vg.marginRight(marginRight),
 			vg.marginTop(4),
 			vg.marginBottom(18),
@@ -274,35 +378,15 @@
 			vg.yDomain(['timeline']),
 			vg.yPadding(0),
 			vg.yAxis(null),
-			vg.colorRange(barColors),
+			vg.colorScale('identity'),
 			vg.intervalX({ as: domainSel, field: vg.column(startCol) })
 		);
 	}
 
 	function buildDashboard(): HTMLElement {
-		const controls = vg.hconcat(
-			vg.menu({
-				label: idCol,
-				as: idSel,
-				from: idsTable,
-				column: idCol,
-				filterBy: searchSel,
-				value: initialId
-			}),
-			vg.hspace(10),
-			vg.search({
-				label: 'Filter',
-				as: searchSel,
-				from: idsTable,
-				column: idCol,
-				type: 'contains',
-				// `contains` has no overload for numeric ids, so match on the text form.
-				field: vg.cast(vg.column(idCol), 'VARCHAR')
-			})
-		);
+		// The ID selector is a Svelte combobox in the template; here we build only
+		// the plots.
 		return vg.vconcat(
-			controls,
-			vg.vspace(10),
 			...(intervals.length ? [intervalPlot()] : []),
 			...values.map((table, i) => valuePlot(table, i === values.length - 1)),
 			...(showOverview ? [vg.vspace(6), overviewPlot()] : [])
@@ -318,22 +402,40 @@
 		return `${value.toLocaleString()} ${stem}${value === 1 ? '' : 's'}`;
 	}
 
-	const hint =
+	const hint = $derived(
 		'Drag to pan, scroll to zoom.' +
-		(showOverview ? ' Brush the overview strip to jump to a range.' : '');
+			(showOverview ? ' Brush the overview strip to jump to a range.' : '')
+	);
 </script>
 
-<div class="w-full p-2">
+{#snippet codeChip(text: string)}
+	<code class="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-xs font-semibold"
+		>{text}</code
+	>
+{/snippet}
+
+<div class="@container w-full p-2" bind:this={rootEl}>
 	<Card.Root>
-		<Card.Header>
-			<Card.Title>Timeseries</Card.Title>
-			<Card.Description>Measurements for a single {idCol}</Card.Description>
+		<Card.Header class="flex flex-row items-center justify-between gap-4 space-y-0">
+			<div class="grid gap-1.5">
+				<Card.Title>Timeseries</Card.Title>
+				<Card.Description>Measurements for a single {@render codeChip(idCol)}</Card.Description>
+			</div>
+			<IdNavigator
+				bind:value={selectedId}
+				search={searchIds}
+				neighbor={neighborId}
+				onSelect={selectId}
+				label={idCol}
+				portalTarget={rootEl}
+			/>
 		</Card.Header>
 		<Card.Content>
 			<div class="ts-dashboard overflow-x-auto" {@attach attachDashboard}></div>
 		</Card.Content>
 		<Card.Footer class="items-center justify-between gap-3 py-2">
-			<p class="text-xs text-muted-foreground">{hint}</p>
+			<!-- Hidden on narrow widget widths to keep the footer uncluttered. -->
+			<p class="hidden text-xs text-muted-foreground @min-[560px]:block">{hint}</p>
 			<div class="flex shrink-0 gap-2">
 				<Badge variant="outline">{pluralise(intervals.length, 'interval')}</Badge>
 				<Badge variant="default">{pluralise(values.length, 'value')}</Badge>
@@ -342,50 +444,11 @@
 	</Card.Root>
 </div>
 
-<!-- vgplot builds raw DOM (not Svelte-scoped), so the mosaic inputs need :global. -->
+<!-- vgplot builds raw DOM (not Svelte-scoped), so the plot internals need :global. -->
 <style>
-	.ts-dashboard :global(.input) {
-		display: inline-flex;
-		align-items: baseline;
-		gap: 0.4rem;
-		margin-right: 0.85rem;
-		font-size: 0.8125rem;
-	}
-	.ts-dashboard :global(.input > label) {
-		font-weight: 500;
-		white-space: nowrap;
-		color: var(--muted-foreground, #6b7280);
-	}
-	.ts-dashboard :global(.input select),
-	.ts-dashboard :global(.input input) {
-		padding: 0.15rem 0.45rem;
-		border: 1px solid var(--border, #e5e7eb);
-		border-radius: 0.375rem;
-		background: transparent;
-		font-size: 0.8125rem;
-		color: inherit;
-	}
 	/* Recolour Observable Plot's grid lines (default: faint currentColor). */
 	.ts-dashboard :global([aria-label$='grid'] line) {
 		stroke: var(--border, #e5e7eb);
 		stroke-opacity: 1;
-	}
-	/* Rounded interval bars. `rx` cascades to `ry`, so all corners round. */
-	.ts-dashboard :global([aria-label='bar'] rect) {
-		rx: var(--radius, 0.5rem);
-	}
-	/* Bar labels: paint white, then blend against whatever is behind so the text
-	   is always the inverse of the bar colour — legible on every chart colour. */
-	.ts-dashboard :global([aria-label='text'] text) {
-		mix-blend-mode: difference;
-	}
-	/* Themed, rounded tip callout. Plot draws it as a <path> (already rounded)
-	   plus text; recolour the border and surface to match the card. */
-	.ts-dashboard :global([aria-label='tip'] path) {
-		fill: var(--popover, #fff);
-		stroke: var(--border, #e5e7eb);
-	}
-	.ts-dashboard :global([aria-label='tip'] text) {
-		fill: var(--popover-foreground, #000);
 	}
 </style>

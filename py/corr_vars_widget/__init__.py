@@ -276,6 +276,9 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
     _start_col = traitlets.Unicode().tag(sync=True)
     _end_col = traitlets.Unicode().tag(sync=True)
     _value_col = traitlets.Unicode().tag(sync=True)
+    # Optional column holding a per-interval CSS colour; falls back to the chart
+    # palette where null. Empty string means "not provided".
+    _color_col = traitlets.Unicode().tag(sync=True)
 
     # Whether `start_col` is a date/time, so the JS side can rebuild the shared
     # x domain as Dates rather than plain numbers.
@@ -290,6 +293,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         start_col: str = "start",
         end_col: str = "end",
         value_col: str = "value",
+        color_col: str | None = None,
     ) -> None:
         """
         Initialize the TimeseriesWidget.
@@ -305,6 +309,9 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             end_col: Timestamp column ending an interval. Interval tables only.
             value_col: Column plotted on the y axis (values) or used as the
                        fill and label (intervals).
+            color_col: Optional column on the interval tables holding a CSS
+                       colour per interval (e.g. "#ff0000" or "var(--chart-4)").
+                       Rows where it is null fall back to the chart palette.
         """
         intervals = dict(intervals or {})
         values = dict(values or {})
@@ -317,9 +324,13 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
                 f"Table names must be unique across intervals and values: {sorted(overlap)}"
             )
 
+        interval_required = (id_col, start_col, end_col, value_col)
+        if color_col:
+            interval_required = (*interval_required, color_col)
+
         conn = duckdb.connect(":memory:")
         for name, df, required in [
-            *((n, d, (id_col, start_col, end_col, value_col)) for n, d in intervals.items()),
+            *((n, d, interval_required) for n, d in intervals.items()),
             *((n, d, (id_col, start_col, value_col)) for n, d in values.items()),
         ]:
             missing = [col for col in required if col not in df.columns]
@@ -360,6 +371,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             _start_col=start_col,
             _end_col=end_col,
             _value_col=value_col,
+            _color_col=color_col or "",
             _temporal=any_df.schema[start_col].is_temporal(),
             _initial_id=first[0] if first else None,
         )

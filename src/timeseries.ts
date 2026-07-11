@@ -15,6 +15,7 @@ export type Model = {
 	_start_col: string;
 	_end_col: string;
 	_value_col: string;
+	_color_col: string;
 	_temporal: boolean;
 	_initial_id: string | number | null;
 };
@@ -37,6 +38,7 @@ export default () => {
 					startCol: model.get('_start_col'),
 					endCol: model.get('_end_col'),
 					valueCol: model.get('_value_col'),
+					colorCol: model.get('_color_col') || undefined,
 					temporal: model.get('_temporal'),
 					initialId: model.get('_initial_id')
 				}
