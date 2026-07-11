@@ -108,11 +108,21 @@
 	// optional `colorCol`, falling back to the palette where null); the border is
 	// that fill darkened ~40% via color-mix. Plot shares one colour scale between
 	// fill and stroke, so computing them per row is the only way to differ them.
-	const chartFallback = () =>
-		vg.sql`CASE (DENSE_RANK() OVER (ORDER BY ${vg.column(valueCol)}) - 1) % 2 WHEN 0 THEN 'var(--chart-1)' ELSE 'var(--chart-2)' END`;
-	const fillColor = () =>
-		colorCol ? vg.sql`COALESCE(${vg.column(colorCol)}, ${chartFallback()})` : chartFallback();
-	const strokeColor = () => vg.sql`('color-mix(in oklab, ' || ${fillColor()} || ' 60%, #000)')`;
+	const intervalChartFallback = () =>
+		vg.sql`CASE (DENSE_RANK() OVER (ORDER BY ${vg.column(valueCol)}) - 1) % 2 WHEN 0 THEN 'var(--chart-2)' ELSE 'var(--chart-4)' END`;
+	const intervalColor = () =>
+		colorCol
+			? vg.sql`COALESCE(${vg.column(colorCol)}, ${intervalChartFallback()})`
+			: intervalChartFallback();
+
+	// Value marks colour per row from `colorCol` (fallback: the primary colour),
+	// so nearby coloured points tint the dots and the area/line between them;
+	// Only used when `colorCol` is set.
+	const valueChartFallback = "'var(--primary)'";
+	const valueColor = () =>
+		colorCol
+			? vg.sql`COALESCE(${vg.column(colorCol!)},  ${valueChartFallback})`
+			: valueChartFallback;
 
 	// Measure with Plot's own axis font (it hard-sets `system-ui` 10px on the
 	// SVG root), so the gutter width and the ellipsis match what actually renders.
@@ -213,13 +223,13 @@
 					x1: startCol,
 					x2: endCol,
 					y: lane,
-					fill: fillColor(),
+					fill: intervalColor(),
 					// Semi-transparent so overlapping intervals in a lane read as
 					// darker bands rather than hiding one another.
-					fillOpacity: 0.7,
+					fillOpacity: 0.1,
 					// Border is the fill darkened ~40%, for a crisp edge.
-					stroke: strokeColor(),
-					strokeWidth: 1,
+					stroke: intervalColor(),
+					strokeWidth: 1.5,
 					inset: 3,
 					// Default bold-label tip. Add value + pre-formatted start/end as
 					// named channels (the times as strings so they need no scale), and
@@ -283,23 +293,25 @@
 			vg.areaY(source, {
 				x: startCol,
 				y: valueCol,
-				fill: 'var(--primary)',
+				z: null,
+				fill: valueColor(),
 				fillOpacity: 0.1,
 				clip: true
 			}),
 			vg.lineY(source, {
 				x: startCol,
 				y: valueCol,
-				stroke: 'var(--primary)',
+				stroke: valueColor(),
+				z: null,
 				strokeWidth: 1.5,
 				clip: true
 			}),
-			// Hollow markers: a background fill ringed by the primary stroke.
+			// Hollow markers: a background fill ringed by the (per-row) stroke.
 			vg.dot(source, {
 				x: startCol,
 				y: valueCol,
 				fill: 'var(--background)',
-				stroke: 'var(--primary)',
+				stroke: valueColor(),
 				strokeWidth: 1.2,
 				r: 2.5,
 				// Tooltip: the value (kept numeric via a bare sql wrapper so Plot still
@@ -307,7 +319,7 @@
 				// with the `y` channel's `value`) and the pre-formatted time. Hide the
 				// raw x/y channels.
 				channels: { Value: vg.sql`${vg.column(valueCol)}`, Time: fmtTime(startCol) },
-				tip: { format: { x: false, y: false } },
+				tip: { format: { x: false, y: false, stroke: false } },
 				clip: true
 			}),
 			vg.width(width),
@@ -328,6 +340,8 @@
 			// otherwise sits flush against the frame edge.
 			vg.yInsetTop(4),
 			vg.yGrid(true),
+			// Colours are resolved per row, so pass them through as-is.
+			...(colorCol ? [vg.colorScale('identity')] : []),
 			vg.panZoomX({ x: domainSel })
 		);
 	}
@@ -348,7 +362,7 @@
 				x1: startCol,
 				x2: endCol,
 				y: lane,
-				fill: fillColor(),
+				fill: intervalColor(),
 				fillOpacity: 0.35,
 				clip: true
 			})
@@ -361,7 +375,7 @@
 				x: startCol,
 				y: lane,
 				r: 1.5,
-				fill: 'var(--primary)',
+				fill: valueColor(),
 				fillOpacity: 0.35,
 				clip: true
 			})
@@ -411,7 +425,7 @@
 </script>
 
 {#snippet codeChip(text: string)}
-	<code class="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-xs font-semibold"
+	<code class="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-xs font-medium"
 		>{text}</code
 	>
 {/snippet}

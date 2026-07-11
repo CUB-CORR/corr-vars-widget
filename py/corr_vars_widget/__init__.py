@@ -309,9 +309,13 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             end_col: Timestamp column ending an interval. Interval tables only.
             value_col: Column plotted on the y axis (values) or used as the
                        fill and label (intervals).
-            color_col: Optional column on the interval tables holding a CSS
-                       colour per interval (e.g. "#ff0000" or "var(--chart-4)").
-                       Rows where it is null fall back to the chart palette.
+            color_col: Optional column holding a CSS colour per row (e.g.
+                       "#ff0000" or "var(--chart-4)"), on interval and/or value
+                       tables. It is optional per table: tables without it (and
+                       rows where it is null) fall back to the default colours
+                       (the chart palette for intervals, the primary colour for
+                       values), so a single lane/series can be coloured while
+                       the rest are not.
         """
         intervals = dict(intervals or {})
         values = dict(values or {})
@@ -324,18 +328,19 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
                 f"Table names must be unique across intervals and values: {sorted(overlap)}"
             )
 
-        interval_required = (id_col, start_col, end_col, value_col)
-        if color_col:
-            interval_required = (*interval_required, color_col)
-
         conn = duckdb.connect(":memory:")
         for name, df, required in [
-            *((n, d, interval_required) for n, d in intervals.items()),
+            *((n, d, (id_col, start_col, end_col, value_col)) for n, d in intervals.items()),
             *((n, d, (id_col, start_col, value_col)) for n, d in values.items()),
         ]:
             missing = [col for col in required if col not in df.columns]
             if missing:
                 raise ValueError(f"Table {name!r} is missing column(s): {missing}")
+            # `color_col` is optional per table: add it as an all-null VARCHAR
+            # column where absent so the JS COALESCE still resolves and those
+            # rows fall back to the default colour.
+            if color_col and color_col not in df.columns:
+                df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias(color_col))
             # FIXME: special case pl.DataFrame for now until DuckDB
             # supports `[string,bytes]_view` Arrow data types
             # see: https://github.com/manzt/quak/issues/41
