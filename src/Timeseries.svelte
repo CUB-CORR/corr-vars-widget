@@ -199,11 +199,6 @@
 			? vg.sql`strftime(${vg.column(c)}, '%Y-%m-%d %H:%M')`
 			: vg.sql`CAST(${vg.column(c)} AS VARCHAR)`;
 
-	/** Interval tooltip: the value on one line, the time range on the next. */
-	function intervalTitle() {
-		return vg.sql`${vg.column(valueCol)} || chr(10) || ${fmtTime(startCol)} || ' – ' || ${fmtTime(endCol)}`;
-	}
-
 	/** All interval tables as lanes of a single plot, sharing one x scale. */
 	function intervalPlot() {
 		// Midpoint of an interval, for centring its text label.
@@ -226,9 +221,16 @@
 					stroke: strokeColor(),
 					strokeWidth: 1,
 					inset: 3,
-					tip: true,
-					// Plot shows only the title channel, so pack value + range into it.
-					title: intervalTitle(),
+					// Default bold-label tip. Add value + pre-formatted start/end as
+					// named channels (the times as strings so they need no scale), and
+					// hide the raw geometry/colour channels — the fill/stroke are colour
+					// strings that would otherwise clutter the tooltip. The names are
+					// capitalised so their aliases don't collide with the x1/x2 columns
+					// (`start`/`end`), which would make mosaic drop them.
+					channels: { Value: valueCol, Start: fmtTime(startCol), End: fmtTime(endCol) },
+					tip: {
+						format: { x1: false, x2: false, y: false, fill: false, stroke: false }
+					},
 					clip: true
 				}),
 				vg.text(source, {
@@ -300,12 +302,12 @@
 				stroke: 'var(--primary)',
 				strokeWidth: 1.2,
 				r: 2.5,
-				// Default multi-channel tip (bold field names). Format the time to
-				// "2024-02-12 07:00" — in UTC, like DuckDB's strftime — rather than
-				// Plot's default ISO string.
-				tip: temporal
-					? { format: { x: (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ') } }
-					: true,
+				// Tooltip: the value (kept numeric via a bare sql wrapper so Plot still
+				// number-formats it, and so its alias is `Value` rather than colliding
+				// with the `y` channel's `value`) and the pre-formatted time. Hide the
+				// raw x/y channels.
+				channels: { Value: vg.sql`${vg.column(valueCol)}`, Time: fmtTime(startCol) },
+				tip: { format: { x: false, y: false } },
 				clip: true
 			}),
 			vg.width(width),
@@ -325,7 +327,7 @@
 			// A little headroom so the clip does not shave the top marker, which
 			// otherwise sits flush against the frame edge.
 			vg.yInsetTop(4),
-			vg.grid(true),
+			vg.yGrid(true),
 			vg.panZoomX({ x: domainSel })
 		);
 	}
