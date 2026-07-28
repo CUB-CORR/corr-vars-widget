@@ -133,12 +133,14 @@
 	$effect(() => eventLabelParam.update(eventLabelsOn ? 1 : 0));
 
 	// Interval colours are resolved per row in SQL and passed through an identity
-	// colour scale. Fill alternates two chart colours by category (or uses the
-	// optional `colorCol`, falling back to the palette where null); the border is
-	// that fill darkened ~40% via color-mix. Plot shares one colour scale between
-	// fill and stroke, so computing them per row is the only way to differ them.
+	// colour scale. The fallback alternates two chart colours by *time order*, so
+	// adjacent intervals always contrast (the point is just to tell neighbours
+	// apart — semantic colour is the user's job via `colorCol`). The optional
+	// `colorCol` overrides it, falling back to the palette where null. Plot shares
+	// one colour scale between fill and stroke, so computing them per row is the
+	// only way to differ them.
 	const intervalChartFallback = () =>
-		vg.sql`CASE (DENSE_RANK() OVER (ORDER BY ${vg.column(valueCol)}) - 1) % 2 WHEN 0 THEN 'var(--chart-2)' ELSE 'var(--chart-4)' END`;
+		vg.sql`CASE (DENSE_RANK() OVER (ORDER BY ${vg.column(startCol)}) - 1) % 2 WHEN 0 THEN 'var(--chart-2)' ELSE 'var(--chart-4)' END`;
 	const intervalColor = () =>
 		colorCol
 			? vg.sql`COALESCE(${vg.column(colorCol)}, ${intervalChartFallback()})`
@@ -154,6 +156,33 @@
 		colorCol
 			? vg.sql`COALESCE(${vg.column(colorCol)}, ${vg.literal(valueChartFallback)})`
 			: valueChartFallback;
+
+	// The interval + event lanes are drawn from a single mark each (a UNION over
+	// the tables, tagged with a synthetic `LANE` column), so there is exactly one
+	// tooltip across all lanes — `tip: true` puts a separate nearest-point tip on
+	// every mark, which fired on multiple lanes at once.
+	const LANE = '__lane';
+	function laneUnion(tables: string[], cols: string[]) {
+		// `idCol` must be projected even when a mark doesn't map it to a channel:
+		// `filterBy: idSel` adds `WHERE <idCol> IN (…)` around the union, so an
+		// unprojected id column is a binder error that kills the whole plot.
+		const projected = cols.includes(idCol) ? cols : [idCol, ...cols];
+		const q = vg.Query.unionAll(
+			...tables.map((t) =>
+				vg.Query.from(t).select(...projected.map((c) => vg.column(c)), { [LANE]: vg.literal(t) })
+			)
+		);
+		return vg.from(q, { filterBy: idSel });
+	}
+	// As above, but the alternation restarts per lane (partition by `LANE`), since
+	// the mark now spans every lane at once — so each lane begins on `chart-2` and
+	// strictly alternates in time order down its own row of bars.
+	const laneChartFallback = () =>
+		vg.sql`CASE (DENSE_RANK() OVER (PARTITION BY ${vg.column(LANE)} ORDER BY ${vg.column(startCol)}) - 1) % 2 WHEN 0 THEN 'var(--chart-2)' ELSE 'var(--chart-4)' END`;
+	const laneFill = () =>
+		colorCol
+			? vg.sql`COALESCE(${vg.column(colorCol)}, ${laneChartFallback()})`
+			: laneChartFallback();
 
 	// Measure with Plot's own axis font (it hard-sets `system-ui` 10px on the
 	// SVG root), so the gutter width and the ellipsis match what actually renders.
@@ -265,98 +294,104 @@
 		const start = vg.column(startCol);
 		const midpoint = vg.sql`${start} + (${vg.column(endCol)} - ${start}) / 2`;
 
-		const marks = intervals.flatMap((table) => {
-			const source = vg.from(table, { filterBy: idSel });
-			const lane = vg.literal(table);
-			return [
-				vg.barX(source, {
-					x1: startCol,
-					x2: endCol,
-					y: lane,
-					fill: intervalColor(),
-					// Semi-transparent so overlapping intervals in a lane read as
-					// darker bands rather than hiding one another.
-					fillOpacity: 0.1,
-					// Border is the fill darkened ~40%, for a crisp edge.
-					stroke: intervalColor(),
-					strokeWidth: 1.5,
-					inset: 3,
-					// Default bold-label tip. Add value + pre-formatted start/end as
-					// named channels (the times as strings so they need no scale), and
-					// hide the raw geometry/colour channels — the fill/stroke are colour
-					// strings that would otherwise clutter the tooltip. The names are
-					// capitalised so their aliases don't collide with the x1/x2 columns
-					// (`start`/`end`), which would make mosaic drop them.
-					channels: { Value: valueCol, Start: fmtTime(startCol), End: fmtTime(endCol) },
-					tip: {
-						format: { x1: false, x2: false, y: false, fill: false, stroke: false }
-					},
-					clip: true
-				}),
-				vg.text(source, {
-					x: midpoint,
-					y: lane,
-					text: valueCol,
-					// Dark text with a background-coloured halo (drawn first via
-					// paint-order) stays legible over any bar colour.
-					fill: 'var(--foreground)',
-					stroke: 'var(--background)',
-					strokeWidth: 2,
-					strokeLinejoin: 'round',
-					paintOrder: 'stroke',
-					fontSize: 9,
-					pointerEvents: 'none',
-					// Bound to the toggle so labels hide/show without a rebuild.
-					opacity: intervalLabelParam,
-					clip: true
-				}),
-				emptyLanePlaceholder(source, lane)
-			];
-		});
+		// The tooltip channels are shared by the interval bars and event dots. The
+		// names are capitalised so their aliases don't collide with the underlying
+		// columns, and the raw geometry/colour channels are hidden.
+		const tipFormat = { x1: false, x2: false, x: false, y: false, fill: false, stroke: false };
 
-		// Event lanes: a dot per timestamp, the value in the tooltip (or beside the
-		// dot when `eventLabels` is on). No y scale for the value — the lane is the
-		// y position, which is the whole point of this mark type.
-		const eventMarks = events.flatMap((table) => {
-			const source = vg.from(table, { filterBy: idSel });
-			const lane = vg.literal(table);
-			return [
-				vg.dot(source, {
-					x: startCol,
-					y: lane,
-					// Diamonds in the primary colour — events read as one kind of thing,
-					// rather than borrowing the intervals' alternating palette. A row's
-					// `colorCol` still overrides it where set.
-					symbol: 'diamond',
-					fill: valueColor(),
-					r: 3,
-					channels: { Value: valueCol, Time: fmtTime(startCol) },
-					tip: { format: { x: false, y: false, fill: false, symbol: false } },
-					clip: true
-				}),
-				// Label beside the dot; opacity bound to the toggle (default off).
-				vg.text(source, {
-					x: startCol,
-					y: lane,
-					text: valueCol,
-					textAnchor: 'start',
-					dx: 6,
-					fill: 'var(--foreground)',
-					stroke: 'var(--background)',
-					strokeWidth: 2,
-					strokeLinejoin: 'round',
-					paintOrder: 'stroke',
-					fontSize: 9,
-					pointerEvents: 'none',
-					opacity: eventLabelParam,
-					clip: true
-				}),
-				emptyLanePlaceholder(source, lane)
-			];
-		});
+		// Interval lanes: one bar mark over every interval table, so a single tip
+		// serves all lanes and fires only near the pointed-at bar.
+		const marks = intervals.length
+			? [
+					vg.barX(
+						laneUnion(intervals, [
+							idCol,
+							startCol,
+							endCol,
+							valueCol,
+							...(colorCol ? [colorCol] : [])
+						]),
+						{
+							x1: startCol,
+							x2: endCol,
+							y: LANE,
+							fill: laneFill(),
+							// Semi-transparent so overlapping intervals in a lane read as
+							// darker bands rather than hiding one another.
+							fillOpacity: 0.1,
+							// Border is the fill darkened ~40%, for a crisp edge.
+							stroke: laneFill(),
+							strokeWidth: 1.5,
+							inset: 3,
+							channels: { Value: valueCol, Start: fmtTime(startCol), End: fmtTime(endCol) },
+							tip: { format: tipFormat },
+							clip: true
+						}
+					),
+					vg.text(laneUnion(intervals, [startCol, endCol, valueCol]), {
+						x: midpoint,
+						y: LANE,
+						text: valueCol,
+						// Dark text with a background-coloured halo (drawn first via
+						// paint-order) stays legible over any bar colour.
+						fill: 'var(--foreground)',
+						stroke: 'var(--background)',
+						strokeWidth: 2,
+						strokeLinejoin: 'round',
+						paintOrder: 'stroke',
+						fontSize: 9,
+						pointerEvents: 'none',
+						// Bound to the toggle so labels hide/show without a rebuild.
+						opacity: intervalLabelParam,
+						clip: true
+					})
+				]
+			: [];
+
+		// Event lanes: a single diamond mark over every event table. The value is
+		// in the tooltip (or beside the dot when the events label toggle is on).
+		const eventMarks = events.length
+			? [
+					vg.dot(laneUnion(events, [idCol, startCol, valueCol, ...(colorCol ? [colorCol] : [])]), {
+						x: startCol,
+						y: LANE,
+						// Diamonds in the primary colour — events read as one kind of thing,
+						// rather than borrowing the intervals' alternating palette. A row's
+						// `colorCol` still overrides it where set.
+						symbol: 'diamond',
+						fill: valueColor(),
+						r: 3,
+						channels: { Value: valueCol, Time: fmtTime(startCol) },
+						tip: { format: { ...tipFormat, symbol: false } },
+						clip: true
+					}),
+					vg.text(laneUnion(events, [startCol, valueCol]), {
+						x: startCol,
+						y: LANE,
+						text: valueCol,
+						textAnchor: 'start',
+						dx: 6,
+						fill: 'var(--foreground)',
+						stroke: 'var(--background)',
+						strokeWidth: 2,
+						strokeLinejoin: 'round',
+						paintOrder: 'stroke',
+						fontSize: 9,
+						pointerEvents: 'none',
+						opacity: eventLabelParam,
+						clip: true
+					})
+				]
+			: [];
+
+		// One placeholder per lane, still per-table (the aggregate trick needs a
+		// single table so an empty one yields the "No data" row).
+		const placeholders = [...intervals, ...events].map((table) =>
+			emptyLanePlaceholder(vg.from(table, { filterBy: idSel }), vg.literal(table))
+		);
 
 		return vg.plot(
-			[...marks, ...eventMarks],
+			[...marks, ...eventMarks, ...placeholders],
 			vg.width(width),
 			vg.height(laneNames.length * laneHeight + 60),
 			vg.marginLeft(gutter),
@@ -371,7 +406,7 @@
 			vg.yPadding(0.2),
 			// Colours are already resolved per row, so pass them through as-is.
 			vg.colorScale('identity'),
-			vg.grid(true),
+			vg.yGrid(true),
 			// Shares `domainSel` with the value charts, so drag-pan and wheel-zoom
 			// move the lanes and the charts together.
 			vg.panZoomX({ x: domainSel })
