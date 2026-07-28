@@ -13,9 +13,6 @@
 - Per-row custom colors via `color_col` for interval bars, event markers, and value marks — accepts any CSS color and shadcn CSS variables (e.g. `var(--destructive)`).
 - Settings popover to toggle interval and event value labels independently.
 
-### Changed
-- Default interval/event colors alternate two chart colors by time order, so adjacent intervals always contrast; provide `color_col` to assign meaning.
-
 ## [0.0.9] - 2026-06-19
 
 ### Changed
