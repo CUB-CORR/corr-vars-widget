@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.10] - 2026-07-28
+
+### Added
+- `TimeseriesWidget`: per-ID clinical timeseries over a shared, synchronized time axis, backed by DuckDB. Combines three lane types in one view:
+  - **Interval lanes** — Gantt-style bars per category table (e.g. device, ventilator mode).
+  - **Event lanes** — point-in-time markers rendered as diamonds.
+  - **Value charts** — line/area charts for numeric measurements.
+- ID selection: a combobox with server-side search plus previous/next navigation, driving every plot's filter.
+- Overview strip for panning and zooming the shared time range, with a reset to the selected ID's full extent.
+- `Timeseries` fluent builder API (`.interval().event().value().color().labels().build()`) as the primary way to assemble a widget, alongside the `TimeseriesWidget(...)` constructor.
+- Per-row custom colors via `color_col` for interval bars, event markers, and value marks — accepts any CSS color and shadcn CSS variables (e.g. `var(--destructive)`).
+- Settings popover to toggle interval and event value labels independently.
+
+### Changed
+- Default interval/event colors alternate two chart colors by time order, so adjacent intervals always contrast; provide `color_col` to assign meaning.
+
 ## [0.0.9] - 2026-06-19
 
 ### Changed
