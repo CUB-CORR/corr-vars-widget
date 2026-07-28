@@ -4,14 +4,24 @@
 	import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
 	import { createAPIContext } from '@uwdata/vgplot';
 
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
+	import { Label } from '$lib/components/ui/label/index.js';
+	import * as Popover from '$lib/components/ui/popover/index.js';
 	import IdNavigator from '$lib/components/composed/IdNavigator.svelte';
 	import './app.css';
+
+	// Unique per widget instance, so checkbox ids stay distinct when several
+	// widgets share a page.
+	const uid = $props.id();
 
 	let {
 		coordinator,
 		intervals,
+		events = [],
 		values,
 		idsTable,
 		idCol,
@@ -26,10 +36,13 @@
 		valueHeight = 90,
 		marginLeft,
 		marginRight = 12,
-		overview = true
+		overview = true,
+		intervalLabels = true,
+		eventLabels = false
 	}: {
 		coordinator: mc.Coordinator;
 		intervals: Array<string>;
+		events?: Array<string>;
 		values: Array<string>;
 		idsTable: string;
 		idCol: string;
@@ -45,7 +58,13 @@
 		marginLeft?: number;
 		marginRight?: number;
 		overview?: boolean;
+		intervalLabels?: boolean;
+		eventLabels?: boolean;
 	} = $props();
+
+	// Interval lanes first, then event lanes — they share one plot and one y band
+	// scale, so this list is the lane order.
+	const laneNames = $derived([...intervals, ...events]);
 
 	// `plot`, `menu` and `search` resolve their coordinator from `this`, so they
 	// must be called as methods on an API context. Destructuring them would
@@ -92,8 +111,8 @@
 
 	const hasValues = $derived(values.length > 0);
 	// The overview is useful whenever there is anything on the timeline, whether
-	// that is interval bars, value dots, or both.
-	const showOverview = $derived(overview && (intervals.length > 0 || values.length > 0));
+	// that is interval bars, event dots, value dots, or a mix.
+	const showOverview = $derived(overview && (laneNames.length > 0 || values.length > 0));
 
 	// Every lane and value chart shares this x domain, so panning or zooming any
 	// one of them moves them all together. `single` keeps only the latest pan /
@@ -102,6 +121,16 @@
 	// The current ID's full extent, kept fixed as the overview strip's domain.
 	const fullDomain = vg.Param.value(undefined);
 	const resetSource = {}; // stable clause source for resetting the shared domain
+
+	// Label visibility is a display toggle: the marks are always drawn, but their
+	// opacity is bound to a Param, so flipping it shows/hides them instantly with
+	// no plot rebuild (pan/zoom/selection untouched). Two independent toggles.
+	let intervalLabelsOn = $state(intervalLabels);
+	let eventLabelsOn = $state(eventLabels);
+	const intervalLabelParam = $derived(vg.Param.value(intervalLabels ? 1 : 0));
+	const eventLabelParam = $derived(vg.Param.value(eventLabels ? 1 : 0));
+	$effect(() => intervalLabelParam.update(intervalLabelsOn ? 1 : 0));
+	$effect(() => eventLabelParam.update(eventLabelsOn ? 1 : 0));
 
 	// Interval colours are resolved per row in SQL and passed through an identity
 	// colour scale. Fill alternates two chart colours by category (or uses the
@@ -116,12 +145,14 @@
 			: intervalChartFallback();
 
 	// Value marks colour per row from `colorCol` (fallback: the primary colour),
-	// so nearby coloured points tint the dots and the area/line between them;
-	// Only used when `colorCol` is set.
-	const valueChartFallback = "'var(--primary)'";
+	// so nearby coloured points tint the dots and the area/line between them.
+	// Without `colorCol` this must be the plain CSS colour — mosaic's `isColor`
+	// only accepts `var(...)`, so a SQL-quoted `'var(...)'` would be read as a
+	// column name and the query would fail.
+	const valueChartFallback = 'var(--primary)';
 	const valueColor = () =>
 		colorCol
-			? vg.sql`COALESCE(${vg.column(colorCol!)},  ${valueChartFallback})`
+			? vg.sql`COALESCE(${vg.column(colorCol)}, ${vg.literal(valueChartFallback)})`
 			: valueChartFallback;
 
 	// Measure with Plot's own axis font (it hard-sets `system-ui` 10px on the
@@ -154,7 +185,7 @@
 		marginLeft ??
 			Math.min(
 				200,
-				Math.max(48, Math.ceil(intervals.reduce((m, l) => Math.max(m, textWidth(l)), 0)) + 16)
+				Math.max(48, Math.ceil(laneNames.reduce((m, l) => Math.max(m, textWidth(l)), 0)) + 16)
 			)
 	);
 
@@ -175,11 +206,12 @@
 		lastId = id;
 
 		const where = `WHERE ${quote(idCol)} = ${vg.literal(id)}`;
+		// Events and values are point-in-time, so lo and hi are both the start.
 		const parts = [
 			...intervals.map(
 				(t) => `SELECT ${bound(startCol)} AS lo, ${bound(endCol)} AS hi FROM ${quote(t)} ${where}`
 			),
-			...values.map(
+			...[...events, ...values].map(
 				(t) => `SELECT ${bound(startCol)} AS lo, ${bound(startCol)} AS hi FROM ${quote(t)} ${where}`
 			)
 		];
@@ -209,7 +241,25 @@
 			? vg.sql`strftime(${vg.column(c)}, '%Y-%m-%d %H:%M')`
 			: vg.sql`CAST(${vg.column(c)} AS VARCHAR)`;
 
-	/** All interval tables as lanes of a single plot, sharing one x scale. */
+	/**
+	 * Placeholder shown only when a lane has no rows for the selected ID, so an
+	 * empty lane reads as "missing" rather than a bug. The lane must come from an
+	 * *aggregate* here: a plain `y` channel would add a GROUP BY, and an empty
+	 * table yields no groups — so the row (and the text) would never exist.
+	 * `MIN(<literal>)` is NULL on an empty table, hence the COALESCE back.
+	 */
+	function emptyLanePlaceholder(source: unknown, lane: unknown) {
+		return vg.text(source, {
+			y: vg.sql`COALESCE(MIN(${lane}), ${lane})`,
+			frameAnchor: 'middle',
+			text: vg.sql`CASE WHEN count(*) = 0 THEN ${vg.literal('No data for this ' + idCol)} END`,
+			fill: 'var(--muted-foreground)',
+			fontSize: 11,
+			pointerEvents: 'none'
+		});
+	}
+
+	/** All interval and event tables as lanes of a single plot, sharing one x scale. */
 	function intervalPlot() {
 		// Midpoint of an interval, for centring its text label.
 		const start = vg.column(startCol);
@@ -256,21 +306,65 @@
 					paintOrder: 'stroke',
 					fontSize: 9,
 					pointerEvents: 'none',
+					// Bound to the toggle so labels hide/show without a rebuild.
+					opacity: intervalLabelParam,
 					clip: true
-				})
+				}),
+				emptyLanePlaceholder(source, lane)
+			];
+		});
+
+		// Event lanes: a dot per timestamp, the value in the tooltip (or beside the
+		// dot when `eventLabels` is on). No y scale for the value — the lane is the
+		// y position, which is the whole point of this mark type.
+		const eventMarks = events.flatMap((table) => {
+			const source = vg.from(table, { filterBy: idSel });
+			const lane = vg.literal(table);
+			return [
+				vg.dot(source, {
+					x: startCol,
+					y: lane,
+					// Diamonds in the primary colour — events read as one kind of thing,
+					// rather than borrowing the intervals' alternating palette. A row's
+					// `colorCol` still overrides it where set.
+					symbol: 'diamond',
+					fill: valueColor(),
+					r: 3,
+					channels: { Value: valueCol, Time: fmtTime(startCol) },
+					tip: { format: { x: false, y: false, fill: false, symbol: false } },
+					clip: true
+				}),
+				// Label beside the dot; opacity bound to the toggle (default off).
+				vg.text(source, {
+					x: startCol,
+					y: lane,
+					text: valueCol,
+					textAnchor: 'start',
+					dx: 6,
+					fill: 'var(--foreground)',
+					stroke: 'var(--background)',
+					strokeWidth: 2,
+					strokeLinejoin: 'round',
+					paintOrder: 'stroke',
+					fontSize: 9,
+					pointerEvents: 'none',
+					opacity: eventLabelParam,
+					clip: true
+				}),
+				emptyLanePlaceholder(source, lane)
 			];
 		});
 
 		return vg.plot(
-			marks,
+			[...marks, ...eventMarks],
 			vg.width(width),
-			vg.height(intervals.length * laneHeight + 60),
+			vg.height(laneNames.length * laneHeight + 60),
 			vg.marginLeft(gutter),
 			vg.marginRight(marginRight),
 			vg.marginBottom(hasValues ? 10 : 40),
 			vg.xAxis(hasValues ? null : 'bottom'),
 			vg.xLabel(null),
-			vg.yDomain(intervals),
+			vg.yDomain(laneNames),
 			vg.yLabel(null),
 			// Ellipsise lane names that exceed the (capped) gutter.
 			vg.yTickFormat((d: unknown) => ellipsize(String(d), gutter - 12)),
@@ -286,7 +380,13 @@
 
 	/** One small line chart per value table. `last` carries the shared x axis. */
 	function valuePlot(table: string, last: boolean) {
-		const source = vg.from(table, { filterBy: idSel });
+		// `optimize: false` disables mosaic's M4 downsampling on the line/area.
+		// M4 keeps only first/last/min/max per pixel-bin AND bins over the whole
+		// (unfiltered) table extent — years across every patient — so one patient's
+		// handful of readings collapse into a bin or two and the middle ones get
+		// dropped, leaving the line skipping points. There is nothing to downsample
+		// in a single-patient view, so we always take the exact, ordered rows.
+		const source = vg.from(table, { filterBy: idSel, optimize: false });
 		// `panZoomX` binds this plot's x domain to the shared `domainSel`, keeping
 		// it in lock-step with the lanes and the other value charts.
 		return vg.plot(
@@ -321,6 +421,16 @@
 				channels: { Value: vg.sql`${vg.column(valueCol)}`, Time: fmtTime(startCol) },
 				tip: { format: { x: false, y: false, stroke: false } },
 				clip: true
+			}),
+			// A centred placeholder shown only when this series has no rows for the
+			// selected ID (the aggregate yields one row; the text is null otherwise,
+			// so nothing renders). Makes an empty lane read as "missing", not a bug.
+			vg.text(source, {
+				frameAnchor: 'middle',
+				text: vg.sql`CASE WHEN count(*) = 0 THEN ${vg.literal('No data for this ' + idCol)} END`,
+				fill: 'var(--muted-foreground)',
+				fontSize: 11,
+				pointerEvents: 'none'
 			}),
 			vg.width(width),
 			// The last chart carries the x axis, which needs a bigger bottom margin.
@@ -380,8 +490,20 @@
 				clip: true
 			})
 		);
+		// Event dots too, so the strip reflects the whole timeline.
+		const eventDotMarks = events.map((table) =>
+			vg.dot(vg.from(table, { filterBy: idSel }), {
+				x: startCol,
+				y: lane,
+				symbol: 'diamond',
+				r: 1.5,
+				fill: valueColor(),
+				fillOpacity: 0.5,
+				clip: true
+			})
+		);
 		return vg.plot(
-			[...barMarks, ...dotMarks],
+			[...barMarks, ...eventDotMarks, ...dotMarks],
 			vg.width(width),
 			vg.height(34),
 			vg.marginLeft(gutter),
@@ -403,7 +525,7 @@
 		// The ID selector is a Svelte combobox in the template; here we build only
 		// the plots.
 		return vg.vconcat(
-			...(intervals.length ? [intervalPlot()] : []),
+			...(laneNames.length ? [intervalPlot()] : []),
 			...values.map((table, i) => valuePlot(table, i === values.length - 1)),
 			...(showOverview ? [vg.vspace(6), overviewPlot()] : [])
 		);
@@ -437,14 +559,52 @@
 				<Card.Title>Timeseries</Card.Title>
 				<Card.Description>Measurements for a single {@render codeChip(idCol)}</Card.Description>
 			</div>
-			<IdNavigator
-				bind:value={selectedId}
-				search={searchIds}
-				neighbor={neighborId}
-				onSelect={selectId}
-				label={idCol}
-				portalTarget={rootEl}
-			/>
+			<div class="flex items-center gap-2">
+				{#if intervals.length || events.length}
+					<Popover.Root>
+						<Popover.Trigger>
+							{#snippet child({ props })}
+								<Button
+									variant="outline"
+									size="icon"
+									class="size-7"
+									aria-label="Display settings"
+									{...props}
+								>
+									<SettingsIcon class="size-4" />
+								</Button>
+							{/snippet}
+						</Popover.Trigger>
+						<Popover.Content class="w-52" side="bottom" portalProps={{ to: rootEl }}>
+							<div class="grid gap-3">
+								<p class="text-sm leading-none font-medium">Labels</p>
+								{#if intervals.length}
+									<div class="flex items-center space-x-2">
+										<Checkbox id="{uid}-interval-labels" bind:checked={intervalLabelsOn} />
+										<Label for="{uid}-interval-labels" class="text-sm font-normal">
+											Interval labels
+										</Label>
+									</div>
+								{/if}
+								{#if events.length}
+									<div class="flex items-center space-x-2">
+										<Checkbox id="{uid}-event-labels" bind:checked={eventLabelsOn} />
+										<Label for="{uid}-event-labels" class="text-sm font-normal">Event labels</Label>
+									</div>
+								{/if}
+							</div>
+						</Popover.Content>
+					</Popover.Root>
+				{/if}
+				<IdNavigator
+					bind:value={selectedId}
+					search={searchIds}
+					neighbor={neighborId}
+					onSelect={selectId}
+					label={idCol}
+					portalTarget={rootEl}
+				/>
+			</div>
 		</Card.Header>
 		<Card.Content>
 			<div class="ts-dashboard overflow-x-auto" {@attach attachDashboard}></div>
@@ -454,6 +614,9 @@
 			<p class="hidden text-xs text-muted-foreground @min-[560px]:block">{hint}</p>
 			<div class="flex shrink-0 gap-2">
 				<Badge variant="outline">{pluralise(intervals.length, 'interval')}</Badge>
+				{#if events.length}
+					<Badge variant="outline">{pluralise(events.length, 'event')}</Badge>
+				{/if}
 				<Badge variant="default">{pluralise(values.length, 'value')}</Badge>
 			</div>
 		</Card.Footer>

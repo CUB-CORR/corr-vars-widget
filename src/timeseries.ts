@@ -9,6 +9,7 @@ import { mosaicInitialise } from './utils/mosaic';
 
 export type Model = {
 	_intervals: Array<string>;
+	_events: Array<string>;
 	_values: Array<string>;
 	_ids_table: string;
 	_id_col: string;
@@ -18,6 +19,8 @@ export type Model = {
 	_color_col: string;
 	_temporal: boolean;
 	_initial_id: string | number | null;
+	_interval_labels: boolean;
+	_event_labels: boolean;
 };
 
 export default () => {
@@ -32,6 +35,7 @@ export default () => {
 				props: {
 					coordinator,
 					intervals: model.get('_intervals'),
+					events: model.get('_events'),
 					values: model.get('_values'),
 					idsTable: model.get('_ids_table'),
 					idCol: model.get('_id_col'),
@@ -40,7 +44,9 @@ export default () => {
 					valueCol: model.get('_value_col'),
 					colorCol: model.get('_color_col') || undefined,
 					temporal: model.get('_temporal'),
-					initialId: model.get('_initial_id')
+					initialId: model.get('_initial_id'),
+					intervalLabels: model.get('_interval_labels'),
+					eventLabels: model.get('_event_labels')
 				}
 			});
 			return () => unmount(app);

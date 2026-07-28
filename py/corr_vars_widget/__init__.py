@@ -258,9 +258,12 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
     """An anywidget plotting per-ID timeseries with vgplot.
 
     Interval tables are drawn as Gantt-style lanes in a single shared plot, one
-    lane per table. Value tables are drawn as small line charts stacked beneath
-    it, one plot per table. All plots share an x scale and are filtered down to
-    a single ID chosen from a menu.
+    lane per table. Event tables become extra lanes in that same plot, drawn as
+    dots at a single timestamp (for point-in-time facts such as procedures or
+    text-valued observations, where the value belongs in the tooltip rather than
+    on a y scale). Value tables are drawn as small line charts stacked beneath,
+    one plot per table. All plots share an x scale and are filtered down to a
+    single ID chosen from the combobox.
     """
 
     _esm = BUNDLER_ASSETS_DIR / "timeseries" / "timeseries.js"
@@ -269,6 +272,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
     # DuckDB config: the registered table names the JS side references via
     # vgplot's `from()`, plus the columns that make up the plot encodings.
     _intervals = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    _events = traitlets.List(traitlets.Unicode()).tag(sync=True)
     _values = traitlets.List(traitlets.Unicode()).tag(sync=True)
     _ids_table = traitlets.Unicode().tag(sync=True)
 
@@ -284,16 +288,23 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
     # x domain as Dates rather than plain numbers.
     _temporal = traitlets.Bool().tag(sync=True)
     _initial_id = traitlets.Any(allow_none=True).tag(sync=True)
+    # Initial state of the in-widget label toggles (the widget owns them at
+    # runtime). Interval labels sit inside the bars; event labels beside the dots.
+    _interval_labels = traitlets.Bool().tag(sync=True)
+    _event_labels = traitlets.Bool().tag(sync=True)
 
     def __init__(
         self,
         intervals: Mapping[str, pl.DataFrame] | None = None,
         values: Mapping[str, pl.DataFrame] | None = None,
+        events: Mapping[str, pl.DataFrame] | None = None,
         id_col: str = "id",
         start_col: str = "start",
         end_col: str = "end",
         value_col: str = "value",
         color_col: str | None = None,
+        interval_labels: bool = True,
+        event_labels: bool = False,
     ) -> None:
         """
         Initialize the TimeseriesWidget.
@@ -303,6 +314,12 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
                        The dict key labels the lane.
             values: Tables with a single timestamp per row, drawn as one line
                     plot each. The dict key labels the plot.
+            events: Tables with a single timestamp per row, drawn as dots on
+                    one lane each (appended below the interval lanes). Use for
+                    point-in-time facts — procedures, text-valued observations —
+                    where the value should not become a y scale; it is shown in
+                    the tooltip (or beside the dot with `event_labels=True`).
+                    `end_col` is not required.
             id_col: Column identifying the entity (e.g. a stay), present in
                     every table. Drives the menu and filters every plot.
             start_col: Timestamp column starting an interval / locating a value.
@@ -319,18 +336,25 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         """
         intervals = dict(intervals or {})
         values = dict(values or {})
-        if not intervals and not values:
-            raise ValueError("Pass at least one interval or value table.")
+        events = dict(events or {})
+        if not intervals and not values and not events:
+            raise ValueError("Pass at least one interval, event or value table.")
 
-        overlap = intervals.keys() & values.keys()
-        if overlap:
-            raise ValueError(
-                f"Table names must be unique across intervals and values: {sorted(overlap)}"
-            )
+        seen: dict[str, str] = {}
+        for kind, tables in (("intervals", intervals), ("events", events), ("values", values)):
+            for name in tables:
+                if name in seen:
+                    raise ValueError(
+                        f"Table names must be unique across intervals, events and values: "
+                        f"{name!r} appears in both {seen[name]} and {kind}"
+                    )
+                seen[name] = kind
 
         conn = duckdb.connect(":memory:")
         for name, df, required in [
             *((n, d, (id_col, start_col, end_col, value_col)) for n, d in intervals.items()),
+            # Events are point-in-time, so they need no `end_col`.
+            *((n, d, (id_col, start_col, value_col)) for n, d in events.items()),
             *((n, d, (id_col, start_col, value_col)) for n, d in values.items()),
         ]:
             missing = [col for col in required if col not in df.columns]
@@ -352,7 +376,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         ids_table = "__ids"
         union = " UNION ALL ".join(
             f"SELECT {_quote(id_col)} FROM {_quote(name)}"
-            for name in (*intervals, *values)
+            for name in (*intervals, *events, *values)
         )
         conn.execute(
             f"CREATE VIEW {_quote(ids_table)} AS "
@@ -362,14 +386,16 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         )
         first = conn.execute(f"SELECT * FROM {_quote(ids_table)} LIMIT 1").fetchone()
 
-        any_df = next(iter({**intervals, **values}.values()))
+        any_df = next(iter({**intervals, **events, **values}.values()))
 
         self._conn = conn
         self._shapes = {
-            name: df.shape for name, df in (*intervals.items(), *values.items())
+            name: df.shape
+            for name, df in (*intervals.items(), *events.items(), *values.items())
         }
         super().__init__(
             _intervals=list(intervals),
+            _events=list(events),
             _values=list(values),
             _ids_table=ids_table,
             _id_col=id_col,
@@ -379,6 +405,8 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             _color_col=color_col or "",
             _temporal=any_df.schema[start_col].is_temporal(),
             _initial_id=first[0] if first else None,
+            _interval_labels=interval_labels,
+            _event_labels=event_labels,
         )
         self.on_msg(self._handle_custom_msg)
 
@@ -393,8 +421,104 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         """Return each registered table as a DuckDB relation."""
         return {
             name: self._conn.query(f"SELECT * FROM {_quote(name)}")
-            for name in (*self._intervals, *self._values)
+            for name in (*self._intervals, *self._events, *self._values)
         }
+
+
+class Timeseries:
+    """Fluent builder for a :class:`TimeseriesWidget` (à la Altair).
+
+    Set the column mapping once, then chain ``.interval()`` / ``.event()`` /
+    ``.value()`` to add series. The result is displayable directly — no build
+    step — because it renders the underlying widget on demand:
+
+    >>> (
+    ...     Timeseries(id_col="stay_id", start_col="start", end_col="end", value_col="value")
+    ...     .interval("Device", devices_df)
+    ...     .event("ECG", ecg_df)
+    ...     .value("Sodium", sodium_df)
+    ...     .color("colour")
+    ... )
+    """
+
+    def __init__(
+        self,
+        *,
+        id_col: str = "id",
+        start_col: str = "start",
+        end_col: str = "end",
+        value_col: str = "value",
+    ) -> None:
+        self._id_col = id_col
+        self._start_col = start_col
+        self._end_col = end_col
+        self._value_col = value_col
+        self._intervals: dict[str, pl.DataFrame] = {}
+        self._events: dict[str, pl.DataFrame] = {}
+        self._values: dict[str, pl.DataFrame] = {}
+        self._color_col: str | None = None
+        self._interval_labels = True
+        self._event_labels = False
+        self._widget: TimeseriesWidget | None = None
+
+    def interval(self, name: str, df: pl.DataFrame) -> "Timeseries":
+        """Add a lane of start/end intervals (Gantt-style bars)."""
+        self._intervals[name] = df
+        return self._touch()
+
+    def event(self, name: str, df: pl.DataFrame) -> "Timeseries":
+        """Add a lane of point-in-time events (dots; value in the tooltip)."""
+        self._events[name] = df
+        return self._touch()
+
+    def value(self, name: str, df: pl.DataFrame) -> "Timeseries":
+        """Add a numeric series drawn as its own small line chart."""
+        self._values[name] = df
+        return self._touch()
+
+    def color(self, col: str | None) -> "Timeseries":
+        """Name the optional per-row CSS-colour column (see ``color_col``)."""
+        self._color_col = col
+        return self._touch()
+
+    def labels(
+        self, *, intervals: bool | None = None, events: bool | None = None
+    ) -> "Timeseries":
+        """Set the initial state of the in-widget label toggles."""
+        if intervals is not None:
+            self._interval_labels = intervals
+        if events is not None:
+            self._event_labels = events
+        return self._touch()
+
+    def _touch(self) -> "Timeseries":
+        # Invalidate any cached widget so the next render reflects new data.
+        self._widget = None
+        return self
+
+    def build(self) -> TimeseriesWidget:
+        """Materialise (and cache) the underlying widget."""
+        if self._widget is None:
+            self._widget = TimeseriesWidget(
+                intervals=self._intervals,
+                events=self._events,
+                values=self._values,
+                id_col=self._id_col,
+                start_col=self._start_col,
+                end_col=self._end_col,
+                value_col=self._value_col,
+                color_col=self._color_col,
+                interval_labels=self._interval_labels,
+                event_labels=self._event_labels,
+            )
+        return self._widget
+
+    def _repr_mimebundle_(self, **kwargs: object) -> object:
+        # Makes the builder itself the thing Jupyter displays.
+        return self.build()._repr_mimebundle_(**kwargs)
+
+    def __repr__(self) -> str:
+        return repr(self.build())
 
 
 class JsonWidget(anywidget.AnyWidget):
@@ -447,6 +571,7 @@ __all__ = [
     "ObsWidget",
     "ObsmWidget",
     "TimeseriesWidget",
+    "Timeseries",
     "JsonWidget",
     "JsonmWidget",
 ]
