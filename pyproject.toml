@@ -50,18 +50,6 @@ ensured-targets = [
     "py/corr_vars_widget/static/timeseries/timeseries.js",
     "py/corr_vars_widget/static/timeseries/main.css",
 ]
-skip-if-exists = [
-    "py/corr_vars_widget/static/json/json.js",
-    "py/corr_vars_widget/static/json/main.css",
-    "py/corr_vars_widget/static/jsonm/jsonm.js",
-    "py/corr_vars_widget/static/jsonm/main.css",
-    "py/corr_vars_widget/static/obs/obs.js",
-    "py/corr_vars_widget/static/obs/main.css",
-    "py/corr_vars_widget/static/obsm/obsm.js",
-    "py/corr_vars_widget/static/obsm/main.css",
-    "py/corr_vars_widget/static/timeseries/timeseries.js",
-    "py/corr_vars_widget/static/timeseries/main.css",
-]
 
 [tool.hatch.build.targets.sdist.hooks.jupyter-builder.build-kwargs]
 npm = "npm"

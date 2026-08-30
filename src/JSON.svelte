@@ -1,14 +1,16 @@
 <script module>
-	export type Model = {
+	import type { Themed } from '$lib/theme.svelte';
+
+	export type Model = Themed & {
 		json: string;
 	};
 </script>
 
 <script lang="ts">
 	import type { AnyModel } from '@anywidget/types';
-	import './app.css';
 
 	import * as Card from '$lib/components/ui/card/index.js';
+	import WidgetRoot from '$lib/components/composed/WidgetRoot.svelte';
 	import ScrollArea from '$lib/components/ui/scroll-area/scroll-area.svelte';
 
 	import JsonView from '$lib/components/composed/json/json-view.svelte';
@@ -58,7 +60,7 @@
 	});
 </script>
 
-<div class="w-full p-2">
+<WidgetRoot {model} class="w-full p-2">
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>JSON Viewer</Card.Title>
@@ -81,4 +83,4 @@
 			</div>
 		</Card.Content>
 	</Card.Root>
-</div>
+</WidgetRoot>

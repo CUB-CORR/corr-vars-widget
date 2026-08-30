@@ -70,6 +70,31 @@ def table_to_ipc(
     return sink.getbuffer()
 
 
+class _ThemeMixin(traitlets.HasTraits):
+    """Gives a widget the shared `theme` trait.
+
+    Every widget in this package renders into the same root class and the same
+    stylesheet, so they all answer the light/dark question the same way and the
+    trait is declared here once rather than five times. The frontend mirrors
+    this as the `Themed` type in `src/lib/theme.svelte.ts`.
+
+    `theme` is live: assigning it re-themes a widget that is already on screen.
+    """
+
+    #: Which palette to use: "auto", "light" or "dark".
+    #:
+    #: "auto" infers it from the host notebook, which is guesswork -- there is no
+    #: standard way for a host to announce its theme, so a host that paints
+    #: nothing readable will be guessed wrong. Pin it when that happens, when a
+    #: notebook is going to be read by someone whose OS setting you do not know,
+    #: or simply because you prefer one.
+    #:
+    #: Note for VS Code: it paints the widget output area white whatever the
+    #: editor theme is, and that area lies outside the widget, so a dark widget
+    #: sits on a white surround there. "light" avoids the mismatch.
+    theme = traitlets.Enum(["auto", "light", "dark"], default_value="auto").tag(sync=True)
+
+
 class _DuckDBQueryMixin:
     """Serves Mosaic query requests from a DuckDB connection.
 
@@ -112,7 +137,7 @@ class _DuckDBQueryMixin:
             logger.info(f"DONE. Query {uuid} took {total} ms.\n{sql}")
 
 
-class ObsWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
+class ObsWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
     """An anywidget for displaying obs data in a table."""
 
     _esm = BUNDLER_ASSETS_DIR / "obs" / "obs.js"
@@ -132,6 +157,7 @@ class ObsWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         data: pl.DataFrame,
         obs_level: str | None = None,
         creation_time: datetime | None = None,
+        **kwargs: object,
     ) -> None:
         """
         Initialize the ObsWidget.
@@ -159,6 +185,7 @@ class ObsWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             _table_name=table,
             _columns=data.columns,
             sql=f'SELECT * FROM "{table}"',
+            **kwargs,
         )
         self.on_msg(self._handle_custom_msg)
 
@@ -179,7 +206,7 @@ class ObsWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         return self._conn.query(self.sql)
 
 
-class ObsmWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
+class ObsmWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
     """An anywidget for displaying obsm data in a table."""
 
     _esm = BUNDLER_ASSETS_DIR / "obsm" / "obsm.js"
@@ -195,7 +222,7 @@ class ObsmWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         )
     ).tag(sync=True)
 
-    def __init__(self, data: Mapping[str, pl.DataFrame]) -> None:
+    def __init__(self, data: Mapping[str, pl.DataFrame], **kwargs: object) -> None:
         """
         Initialize the ObsmWidget.
 
@@ -221,7 +248,7 @@ class ObsmWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             )
         self._conn = conn
         self._shapes = {name: df.shape for name, df in data.items()}
-        super().__init__(_tables=tables)
+        super().__init__(_tables=tables, **kwargs)
         self.on_msg(self._handle_custom_msg)
 
     def __repr__(self) -> str:
@@ -254,7 +281,7 @@ def _quote(identifier: str) -> str:
     return f'"{escaped}"'
 
 
-class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
+class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
     """An anywidget plotting per-ID timeseries with vgplot.
 
     Interval tables are drawn as Gantt-style lanes in a single shared plot, one
@@ -305,6 +332,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
         color_col: str | None = None,
         interval_labels: bool = True,
         event_labels: bool = False,
+        **kwargs: object,
     ) -> None:
         """
         Initialize the TimeseriesWidget.
@@ -407,6 +435,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, anywidget.AnyWidget):
             _initial_id=first[0] if first else None,
             _interval_labels=interval_labels,
             _event_labels=event_labels,
+            **kwargs,
         )
         self.on_msg(self._handle_custom_msg)
 
@@ -438,6 +467,7 @@ class Timeseries:
     ...     .event("ECG", ecg_df)
     ...     .value("Sodium", sodium_df)
     ...     .color("colour")
+    ...     .theme("dark")
     ... )
     """
 
@@ -459,6 +489,7 @@ class Timeseries:
         self._color_col: str | None = None
         self._interval_labels = True
         self._event_labels = False
+        self._theme = "auto"
         self._widget: TimeseriesWidget | None = None
 
     def interval(self, name: str, df: pl.DataFrame) -> "Timeseries":
@@ -491,6 +522,11 @@ class Timeseries:
             self._event_labels = events
         return self._touch()
 
+    def theme(self, value: str) -> "Timeseries":
+        """Pin the palette to "light" or "dark", or "auto" to follow the host."""
+        self._theme = value
+        return self._touch()
+
     def _touch(self) -> "Timeseries":
         # Invalidate any cached widget so the next render reflects new data.
         self._widget = None
@@ -510,6 +546,7 @@ class Timeseries:
                 color_col=self._color_col,
                 interval_labels=self._interval_labels,
                 event_labels=self._event_labels,
+                theme=self._theme,
             )
         return self._widget
 
@@ -521,7 +558,7 @@ class Timeseries:
         return repr(self.build())
 
 
-class JsonWidget(anywidget.AnyWidget):
+class JsonWidget(_ThemeMixin, anywidget.AnyWidget):
     """An anywidget for displaying json data"""
 
     _esm = BUNDLER_ASSETS_DIR / "json" / "json.js"
@@ -532,6 +569,7 @@ class JsonWidget(anywidget.AnyWidget):
     def __init__(
         self,
         data: object | str,
+        **kwargs: object,
     ) -> None:
         """
         Initialize the JsonWidget.
@@ -539,10 +577,12 @@ class JsonWidget(anywidget.AnyWidget):
         Args:
             data: A JSON-serializable object or a JSON string.
         """
-        super().__init__(json=json.dumps(data) if not isinstance(data, str) else data)
+        super().__init__(
+            json=json.dumps(data) if not isinstance(data, str) else data, **kwargs
+        )
 
 
-class JsonmWidget(anywidget.AnyWidget):
+class JsonmWidget(_ThemeMixin, anywidget.AnyWidget):
     """An anywidget for displaying a dict of JSON entries in an accordion view."""
 
     _esm = BUNDLER_ASSETS_DIR / "jsonm" / "jsonm.js"
@@ -553,7 +593,7 @@ class JsonmWidget(anywidget.AnyWidget):
         key_trait=traitlets.Unicode(),
     ).tag(sync=True)
 
-    def __init__(self, data: Mapping[str, object | str]) -> None:
+    def __init__(self, data: Mapping[str, object | str], **kwargs: object) -> None:
         """
         Initialize the JsonmWidget.
 
@@ -564,7 +604,7 @@ class JsonmWidget(anywidget.AnyWidget):
             key: value if isinstance(value, str) else json.dumps(value)
             for key, value in data.items()
         }
-        super().__init__(_jsons=items)
+        super().__init__(_jsons=items, **kwargs)
 
 
 __all__ = [

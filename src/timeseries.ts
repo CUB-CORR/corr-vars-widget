@@ -4,10 +4,11 @@ import { mount, unmount } from 'svelte';
 import * as mc from '@uwdata/mosaic-core';
 
 import type * as aw from '@anywidget/types';
+import type { Themed } from '$lib/theme.svelte';
 
 import { mosaicInitialise } from './utils/mosaic';
 
-export type Model = {
+export type Model = Themed & {
 	_intervals: Array<string>;
 	_events: Array<string>;
 	_values: Array<string>;
@@ -33,6 +34,7 @@ export default () => {
 			const app = mount(App, {
 				target: el,
 				props: {
+					model,
 					coordinator,
 					intervals: model.get('_intervals'),
 					events: model.get('_events'),

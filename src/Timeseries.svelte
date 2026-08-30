@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { AnyModel } from '@anywidget/types';
+	import type { Theme } from '$lib/theme.svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import type * as mc from '@uwdata/mosaic-core';
 	import { clauseInterval, clausePoint } from '@uwdata/mosaic-core';
@@ -8,17 +10,18 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
+	import WidgetRoot from '$lib/components/composed/WidgetRoot.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import IdNavigator from '$lib/components/composed/IdNavigator.svelte';
-	import './app.css';
 
 	// Unique per widget instance, so checkbox ids stay distinct when several
 	// widgets share a page.
 	const uid = $props.id();
 
 	let {
+		model,
 		coordinator,
 		intervals,
 		events = [],
@@ -40,6 +43,7 @@
 		intervalLabels = true,
 		eventLabels = false
 	}: {
+		model?: AnyModel<{ theme: Theme }>;
 		coordinator: mc.Coordinator;
 		intervals: Array<string>;
 		events?: Array<string>;
@@ -587,7 +591,7 @@
 	>
 {/snippet}
 
-<div class="@container w-full p-2" bind:this={rootEl}>
+<WidgetRoot {model} class="@container w-full p-2" bind:ref={rootEl}>
 	<Card.Root>
 		<Card.Header class="flex flex-row items-center justify-between gap-4 space-y-0">
 			<div class="grid gap-1.5">
@@ -599,14 +603,8 @@
 					<Popover.Root>
 						<Popover.Trigger>
 							{#snippet child({ props })}
-								<Button
-									variant="outline"
-									size="icon"
-									class="size-7"
-									aria-label="Display settings"
-									{...props}
-								>
-									<SettingsIcon class="size-4" />
+								<Button variant="outline" size="icon-sm" aria-label="Display settings" {...props}>
+									<SettingsIcon />
 								</Button>
 							{/snippet}
 						</Popover.Trigger>
@@ -656,7 +654,7 @@
 			</div>
 		</Card.Footer>
 	</Card.Root>
-</div>
+</WidgetRoot>
 
 <!-- vgplot builds raw DOM (not Svelte-scoped), so the plot internals need :global. -->
 <style>
@@ -664,5 +662,18 @@
 	.ts-dashboard :global([aria-label$='grid'] line) {
 		stroke: var(--border, #e5e7eb);
 		stroke-opacity: 1;
+	}
+
+	/* Plot fills its tooltip bubble with `var(--plot-background)` and draws the
+	   text in `currentColor`. It declares `--plot-background: white` on the svg
+	   itself, so in a dark theme the bubble stayed white while the text followed
+	   our light foreground -- white on white.
+
+	   The declaration has to land on the same element: Plot's own rule is
+	   zero-specificity (`:where(.plot-xxxxxx)`), but a value declared *on* an
+	   element always beats one inherited from an ancestor, so setting this on
+	   `.ts-dashboard` would not have taken. */
+	.ts-dashboard :global(svg) {
+		--plot-background: var(--card);
 	}
 </style>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { AnyModel } from '@anywidget/types';
+	import type { Theme } from '$lib/theme.svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { DataTable } from '@manzt/quak';
 	import * as mc from '@uwdata/mosaic-core';
@@ -9,13 +11,15 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
+	import WidgetRoot from '$lib/components/composed/WidgetRoot.svelte';
 	import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up';
-	import './app.css';
 
 	let {
+		model,
 		coordinator,
 		tables
 	}: {
+		model?: AnyModel<{ theme: Theme }>;
 		coordinator: mc.Coordinator;
 		tables: Record<string, { data: DataTable; schema: flech.Schema }>;
 	} = $props();
@@ -59,7 +63,7 @@
 	}
 </script>
 
-<div class="w-full p-2">
+<WidgetRoot {model} class="w-full p-2">
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>ObsmDict</Card.Title>
@@ -84,8 +88,9 @@
 								>
 							</p>
 						</Accordion.Trigger>
-						<Accordion.Content class="flex flex-col gap-4 text-balance" {@attach appendTable(table)}
-						></Accordion.Content>
+						<Accordion.Content class="flex flex-col gap-4 text-balance">
+							<div class="quak-host" {@attach appendTable(table)}></div>
+						</Accordion.Content>
 					</Accordion.Item>
 				{/each}
 			</Accordion.Root>
@@ -94,4 +99,4 @@
 			<Badge variant="default">{pluralise(tableEntries.length, 'table')}</Badge>
 		</Card.Footer>
 	</Card.Root>
-</div>
+</WidgetRoot>

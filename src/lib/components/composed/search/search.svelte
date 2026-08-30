@@ -71,7 +71,6 @@
 	);
 
 	const onSearchTermChange = (searchTerm: string) => {
-		console.log('Search term changed:', searchTerm);
 		onfiltered(searchTerm ? termsFilterFn(searchTerm) : uniqueTerms);
 	};
 </script>
@@ -95,14 +94,14 @@
 		bind:value={searchOptions}
 		onValueChange={() => onSearchTermChange(searchTerm)}
 		variant="outline"
-		size="sm"
+		size="default"
 		type="multiple"
 	>
 		<ToggleGroup.Item value="case-insensitive" aria-label="Toggle case insensitive">
-			<CaseSensitiveIcon class="size-4" />
+			<CaseSensitiveIcon class="size-4.5" />
 		</ToggleGroup.Item>
 		<ToggleGroup.Item value="regex" aria-label="Toggle regex">
-			<RegexIcon class="size-4" />
+			<RegexIcon class="size-4.5" />
 		</ToggleGroup.Item>
 	</ToggleGroup.Root>
 </div>

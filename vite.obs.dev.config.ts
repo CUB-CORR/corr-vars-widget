@@ -3,17 +3,13 @@ import { baseConfig } from './vite.obs.config';
 
 // https://vite.dev/config/
 export default defineConfig({
-    ...baseConfig,
-    build: {
-        ...baseConfig.build,
-        sourcemap: 'inline',
-        watch: {
-            include: 'src/**',
-            exclude: [
-                'node_modules/**',
-                'notebooks/**',
-                'py/**',
-            ],
-        }
+	...baseConfig,
+	build: {
+		...baseConfig.build,
+		sourcemap: 'inline',
+		watch: {
+			include: 'src/**',
+			exclude: ['node_modules/**', 'notebooks/**', 'py/**']
+		}
 	}
 });
