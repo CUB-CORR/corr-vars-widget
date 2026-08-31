@@ -4,6 +4,18 @@
 
 ### Added
 
+- `TimeseriesWidget` windows and anchors (#4). A **window** is a shaded band
+  between two timestamps (an admission, an ICU stay); an **anchor** is a vertical
+  rule at one (a death, a transfer). Both are drawn across the lanes, every value
+  chart and the overview strip rather than occupying a lane, so a reading can be
+  placed against them directly. Passed as `windows=` / `anchors=`, or built with
+  `.window()` / `.anchor()`; named by the dict key, labelled once on the topmost
+  plot and toggleable from the settings popover.
+
+  They are neutral grey unless `color_col` names a colour, so the red death line
+  is opt-in. They do not widen the fitted time range and contribute no IDs to the
+  menu, since they annotate data rather than being data.
+
 - A `theme` trait on every widget, accepting `"auto"` (the default), `"light"`
   or `"dark"`, and assignable at runtime to re-theme a widget already on screen.
   `auto` infers the host notebook's theme from what it has actually painted,

@@ -32,6 +32,35 @@ Displays a dict of JSON objects in collapsible accordions. A shared search bar f
 
 Displays per-ID clinical timeseries over a shared, synchronized time axis, backed by DuckDB. It combines three lane types in one view: **interval** lanes (Gantt-style bars), **event** lanes (point-in-time dots), and **value** charts (line/area). Pick an ID with the searchable combobox, pan/zoom via the overview strip, and toggle labels from the settings popover. Provide a `color_col` (any CSS color or shadcn CSS variable) to colour rows explicitly.
 
+**Windows and anchors** annotate the timeline rather than occupying a lane of
+their own. A window is a shaded band between two timestamps — an admission, an
+ICU stay; an anchor is a vertical rule at one — a death, a transfer. Both are
+drawn across the lanes, every value chart and the overview strip, so a reading
+can be placed against them at a glance. Each is named by its dict key, shown
+once on the topmost plot and toggleable from the settings popover.
+
+```python
+TimeseriesWidget(
+    intervals={"Device": devices},
+    values={"PaO₂": pao2},
+    windows={"Admission": admissions},   # needs start and end, no value
+    anchors={"Death": deaths},           # needs start only
+    id_col="stay_id",
+)
+```
+
+They are deliberately quiet: neutral grey unless `color_col` names a colour for
+them, so a red death line is opt-in rather than assumed.
+
+```python
+deaths.with_columns(color=pl.lit("var(--destructive)"))
+```
+
+Because they annotate data rather than being data, they do not widen the time
+range fitted when you pick an ID — a year-long admission would otherwise squeeze
+a few hours of measurements into a sliver — and they contribute no IDs to the
+menu.
+
 A fluent `Timeseries` builder is available as the primary API:
 
 ```python
@@ -40,6 +69,8 @@ A fluent `Timeseries` builder is available as the primary API:
     .interval("Device", devices)
     .event("Sedation", sedation)
     .value("PaO₂", pao2)
+    .window("Admission", admissions)
+    .anchor("Death", deaths)
 )
 ```
 

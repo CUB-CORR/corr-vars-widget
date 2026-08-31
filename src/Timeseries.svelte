@@ -26,6 +26,8 @@
 		intervals,
 		events = [],
 		values,
+		windows = [],
+		anchors = [],
 		idsTable,
 		idCol,
 		startCol,
@@ -41,13 +43,16 @@
 		marginRight = 12,
 		overview = true,
 		intervalLabels = true,
-		eventLabels = false
+		eventLabels = false,
+		annotationLabels = true
 	}: {
 		model?: AnyModel<{ theme: Theme }>;
 		coordinator: mc.Coordinator;
 		intervals: Array<string>;
 		events?: Array<string>;
 		values: Array<string>;
+		windows?: Array<string>;
+		anchors?: Array<string>;
 		idsTable: string;
 		idCol: string;
 		startCol: string;
@@ -64,6 +69,7 @@
 		overview?: boolean;
 		intervalLabels?: boolean;
 		eventLabels?: boolean;
+		annotationLabels?: boolean;
 	} = $props();
 
 	// Interval lanes first, then event lanes — they share one plot and one y band
@@ -131,10 +137,13 @@
 	// no plot rebuild (pan/zoom/selection untouched). Two independent toggles.
 	let intervalLabelsOn = $state(intervalLabels);
 	let eventLabelsOn = $state(eventLabels);
+	let annotationLabelsOn = $state(annotationLabels);
 	const intervalLabelParam = $derived(vg.Param.value(intervalLabels ? 1 : 0));
 	const eventLabelParam = $derived(vg.Param.value(eventLabels ? 1 : 0));
+	const annotationLabelParam = $derived(vg.Param.value(annotationLabels ? 1 : 0));
 	$effect(() => intervalLabelParam.update(intervalLabelsOn ? 1 : 0));
 	$effect(() => eventLabelParam.update(eventLabelsOn ? 1 : 0));
+	$effect(() => annotationLabelParam.update(annotationLabelsOn ? 1 : 0));
 
 	// Interval colours are resolved per row in SQL and passed through an identity
 	// colour scale. The fallback alternates two chart colours by *time order*, so
@@ -160,6 +169,32 @@
 		colorCol
 			? vg.sql`COALESCE(${vg.column(colorCol)}, ${vg.literal(valueChartFallback)})`
 			: valueChartFallback;
+
+	// Windows and anchors are annotations, not data, so they stay deliberately
+	// quiet: a neutral grey unless `colorCol` names something for them. That is
+	// how the red death line in the issue is asked for -- explicitly, per row --
+	// rather than by this deciding that an anchor means danger.
+	const annotationFallback = 'var(--muted-foreground)';
+	const annotationColor = () =>
+		colorCol
+			? vg.sql`COALESCE(${vg.column(colorCol)}, ${vg.literal(annotationFallback)})`
+			: annotationFallback;
+
+	const hasAnnotations = $derived(windows.length > 0 || anchors.length > 0);
+
+	// Vertical strip kept clear at the top of the labelled plot, so an annotation
+	// name never sits against the first lane's bars. Reserved whenever there are
+	// annotations at all, not only while the labels are switched on: the toggle
+	// changes opacity without a rebuild, so making the space conditional on it
+	// would shift every lane on each click.
+	//
+	// The name sits *inside* the strip with equal clearance either side, rather
+	// than tight against the top edge with all the space below it: the same gap
+	// above and below reads as one deliberate band instead of a label that has
+	// slipped upwards.
+	const ANNOTATION_LABEL_SIZE = 9;
+	const ANNOTATION_LABEL_PAD = 6;
+	const ANNOTATION_LABEL_GUTTER = ANNOTATION_LABEL_PAD * 2 + ANNOTATION_LABEL_SIZE;
 
 	// The interval + event lanes are drawn from a single mark each (a UNION over
 	// the tables, tagged with a synthetic `LANE` column), so there is exactly one
@@ -292,8 +327,111 @@
 		});
 	}
 
+	/**
+	 * Windows and anchors, drawn across the whole frame of whichever plot they
+	 * are added to. This is what makes them annotations rather than lanes: the
+	 * same admission band and the same death line appear on the lanes, on every
+	 * value chart and on the overview strip, so a reading can be placed against
+	 * them without counting rows.
+	 *
+	 * A `rect` with no y channel spans the frame -- Plot falls back to the plot
+	 * margins when `y1`/`y2` are absent -- which is what lets one mark work on a
+	 * band y scale (the lanes) and a quantitative one (the value charts) alike.
+	 *
+	 * Nothing here takes pointer events: these marks cover the entire plot, and
+	 * would otherwise swallow every tooltip on the data underneath.
+	 *
+	 * Labels are built separately by `annotationLabelMarks`, because these go
+	 * behind the data while the labels go in front of it.
+	 */
+	function annotationMarks() {
+		const marks = [];
+
+		for (const table of windows) {
+			const source = () => vg.from(table, { filterBy: idSel });
+			marks.push(
+				// The band itself, faint enough to read data through.
+				vg.rect(source(), {
+					x1: startCol,
+					x2: endCol,
+					fill: annotationColor(),
+					fillOpacity: 0.07,
+					pointerEvents: 'none',
+					clip: true
+				}),
+				// Edge rules, because a wide pale band leaves its exact start and
+				// end unreadable. Dashed, to separate them from an anchor's solid
+				// rule at a glance.
+				...([startCol, endCol] as const).map((col) =>
+					vg.ruleX(source(), {
+						x: col,
+						stroke: annotationColor(),
+						strokeOpacity: 0.5,
+						strokeDasharray: '3,3',
+						pointerEvents: 'none',
+						clip: true
+					})
+				)
+			);
+		}
+
+		for (const table of anchors) {
+			marks.push(
+				vg.ruleX(vg.from(table, { filterBy: idSel }), {
+					x: startCol,
+					stroke: annotationColor(),
+					strokeWidth: 1.5,
+					pointerEvents: 'none',
+					clip: true
+				})
+			);
+		}
+
+		return marks;
+	}
+
+	/**
+	 * The names of the windows and anchors, for the topmost plot only, so each
+	 * is named once rather than repeated down every chart.
+	 *
+	 * Kept apart from `annotationMarks` so the caller can add these *last*: a
+	 * label drawn behind the bars is painted over by them, which is what made
+	 * them look cramped against the first lane. Behind for the bands, in front
+	 * for the names.
+	 *
+	 * They sit in the strip that `ANNOTATION_LABEL_GUTTER` reserves above the
+	 * data, so nothing has to overlap in the first place.
+	 */
+	function annotationLabelMarks(labels: boolean) {
+		if (!labels) return [];
+
+		// Named from the dict key, which is the only name an annotation has --
+		// unlike intervals and events, these tables carry no value column.
+		return [...windows, ...anchors].map((table) =>
+			vg.text(vg.from(table, { filterBy: idSel }), {
+				x: startCol,
+				text: vg.sql`${vg.literal(table)}`,
+				frameAnchor: 'top',
+				textAnchor: 'start',
+				dx: 4,
+				dy: ANNOTATION_LABEL_PAD,
+				fill: annotationColor(),
+				// Halo, as on the interval labels, so the name stays legible
+				// wherever it lands.
+				stroke: 'var(--background)',
+				strokeWidth: 2,
+				strokeLinejoin: 'round',
+				paintOrder: 'stroke',
+				fontSize: ANNOTATION_LABEL_SIZE,
+				pointerEvents: 'none',
+				opacity: annotationLabelParam,
+				clip: true
+			})
+		);
+	}
+
 	/** All interval and event tables as lanes of a single plot, sharing one x scale. */
-	function intervalPlot() {
+	function intervalPlot(labels: boolean) {
 		// Midpoint of an interval, for centring its text label.
 		const start = vg.column(startCol);
 		const midpoint = vg.sql`${start} + (${vg.column(endCol)} - ${start}) / 2`;
@@ -395,9 +533,21 @@
 		);
 
 		return vg.plot(
-			[...marks, ...eventMarks, ...placeholders],
+			// Bands first so they sit behind the bars and dots; names last so the
+			// bars cannot paint over them.
+			[
+				...annotationMarks(),
+				...marks,
+				...eventMarks,
+				...placeholders,
+				...annotationLabelMarks(labels)
+			],
 			vg.width(width),
-			vg.height(laneNames.length * laneHeight + 60),
+			// Grow by the reserved strip rather than borrowing it from the lanes,
+			// so every lane keeps its full height.
+			vg.height(
+				laneNames.length * laneHeight + 60 + (hasAnnotations ? ANNOTATION_LABEL_GUTTER : 0)
+			),
 			vg.marginLeft(gutter),
 			vg.marginRight(marginRight),
 			vg.marginBottom(hasValues ? 10 : 40),
@@ -408,6 +558,8 @@
 			// Ellipsise lane names that exceed the (capped) gutter.
 			vg.yTickFormat((d: unknown) => ellipsize(String(d), gutter - 12)),
 			vg.yPadding(0.2),
+			// Push the lanes clear of the annotation names above them.
+			vg.yInsetTop(hasAnnotations ? ANNOTATION_LABEL_GUTTER : 0),
 			// Colours are already resolved per row, so pass them through as-is.
 			vg.colorScale('identity'),
 			vg.yGrid(true),
@@ -418,7 +570,7 @@
 	}
 
 	/** One small line chart per value table. `last` carries the shared x axis. */
-	function valuePlot(table: string, last: boolean) {
+	function valuePlot(table: string, last: boolean, labels: boolean) {
 		// `optimize: false` disables mosaic's M4 downsampling on the line/area.
 		// M4 keeps only first/last/min/max per pixel-bin AND bins over the whole
 		// (unfiltered) table extent — years across every patient — so one patient's
@@ -429,6 +581,7 @@
 		// `panZoomX` binds this plot's x domain to the shared `domainSel`, keeping
 		// it in lock-step with the lanes and the other value charts.
 		return vg.plot(
+			...annotationMarks(),
 			vg.areaY(source, {
 				x: startCol,
 				y: valueCol,
@@ -471,11 +624,12 @@
 				fontSize: 11,
 				pointerEvents: 'none'
 			}),
+			...annotationLabelMarks(labels),
 			vg.width(width),
 			// The last chart carries the x axis, which needs a bigger bottom margin.
 			// Grow its total height by the same amount so every chart keeps an equal
 			// *plotted* area (height − margins) rather than shrinking the last one.
-			vg.height(valueHeight + (last ? 32 : 0)),
+			vg.height(valueHeight + (last ? 32 : 0) + (labels ? ANNOTATION_LABEL_GUTTER : 0)),
 			vg.marginLeft(gutter),
 			vg.marginRight(marginRight),
 			vg.marginBottom(last ? 40 : 8),
@@ -486,10 +640,13 @@
 			vg.yLabel(ellipsize(table, 200)),
 			vg.yLabelAnchor('top'),
 			// A little headroom so the clip does not shave the top marker, which
-			// otherwise sits flush against the frame edge.
-			vg.yInsetTop(4),
+			// otherwise sits flush against the frame edge -- plus the reserved
+			// strip when this chart is the one carrying the annotation names.
+			vg.yInsetTop(4 + (labels ? ANNOTATION_LABEL_GUTTER : 0)),
 			vg.yGrid(true),
-			// Colours are resolved per row, so pass them through as-is.
+			// Colours are resolved per row, so pass them through as-is. Only
+			// needed when `colorCol` is set: without it every colour here is a
+			// constant CSS string rather than a channel, and needs no scale.
 			...(colorCol ? [vg.colorScale('identity')] : []),
 			vg.panZoomX({ x: domainSel })
 		);
@@ -542,7 +699,9 @@
 			})
 		);
 		return vg.plot(
-			[...barMarks, ...eventDotMarks, ...dotMarks],
+			// Annotations here too, so the strip shows where the window sits
+			// relative to the whole timeline, not just the current view.
+			[...annotationMarks(), ...barMarks, ...eventDotMarks, ...dotMarks],
 			vg.width(width),
 			vg.height(34),
 			vg.marginLeft(gutter),
@@ -563,9 +722,13 @@
 	function buildDashboard(): HTMLElement {
 		// The ID selector is a Svelte combobox in the template; here we build only
 		// the plots.
+		// Whichever plot comes first carries the annotation labels.
+		const lanesFirst = laneNames.length > 0;
 		return vg.vconcat(
-			...(laneNames.length ? [intervalPlot()] : []),
-			...values.map((table, i) => valuePlot(table, i === values.length - 1)),
+			...(lanesFirst ? [intervalPlot(true)] : []),
+			...values.map((table, i) =>
+				valuePlot(table, i === values.length - 1, !lanesFirst && i === 0)
+			),
 			...(showOverview ? [vg.vspace(6), overviewPlot()] : [])
 		);
 	}
@@ -599,7 +762,7 @@
 				<Card.Description>Measurements for a single {@render codeChip(idCol)}</Card.Description>
 			</div>
 			<div class="flex items-center gap-2">
-				{#if intervals.length || events.length}
+				{#if intervals.length || events.length || hasAnnotations}
 					<Popover.Root>
 						<Popover.Trigger>
 							{#snippet child({ props })}
@@ -623,6 +786,14 @@
 									<div class="flex items-center space-x-2">
 										<Checkbox id="{uid}-event-labels" bind:checked={eventLabelsOn} />
 										<Label for="{uid}-event-labels" class="text-sm font-normal">Event labels</Label>
+									</div>
+								{/if}
+								{#if hasAnnotations}
+									<div class="flex items-center space-x-2">
+										<Checkbox id="{uid}-annotation-labels" bind:checked={annotationLabelsOn} />
+										<Label for="{uid}-annotation-labels" class="text-sm font-normal">
+											Window / anchor labels
+										</Label>
 									</div>
 								{/if}
 							</div>

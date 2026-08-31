@@ -73,6 +73,34 @@ for bad, why in [
     else:
         raise AssertionError(f"TimeseriesWidget should reject {why}")
 
+# Windows and anchors annotate; they need no value column, and a window needs an
+# end while an anchor does not.
+windows = pl.DataFrame({"id": [1, 2], "start": [-5, 0], "end": [20, 3]})
+anchors = pl.DataFrame({"id": [1], "start": [7]})
+
+for bad, why in [
+    (dict(intervals={"D": intervals}, windows={"W": anchors}), "a window with no end column"),
+    (dict(intervals={"D": intervals}, windows={"D": windows}), "a name colliding with an interval"),
+    (dict(windows={"W": windows}), "annotations with nothing to annotate"),
+]:
+    try:
+        TimeseriesWidget(**bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"TimeseriesWidget should reject {why}")
+
+annotated = TimeseriesWidget(
+    intervals={"Device": intervals}, windows={"Admission": windows}, anchors={"Death": anchors}
+)
+assert annotated._windows == ["Admission"] and annotated._anchors == ["Death"]
+# `data` hands back every registered table, annotations included.
+assert set(annotated.data) == {"Device", "Admission", "Death"}, set(annotated.data)
+# id 2 appears only in the window, so it must not reach the menu: it has nothing
+# to plot and no extent to fit a time range to.
+menu = [row[0] for row in annotated._conn.execute('SELECT * FROM "__ids"').fetchall()]
+assert menu == [1], menu
+
 ts = TimeseriesWidget(intervals={"Device": intervals}, values={"Sodium": values})
 assert ts._intervals == ["Device"] and ts._values == ["Sodium"]
 # The id view unions every table, so an id present in only one still appears.
@@ -113,6 +141,19 @@ for name, make in [
         raise AssertionError(f"{name} accepted an invalid theme")
 
 # The builder carries it through, and changing it rebuilds.
+# The builder carries windows and anchors through too.
+annotated_builder = (
+    Timeseries(id_col="id")
+    .interval("Device", intervals)
+    .window("Admission", windows)
+    .anchor("Death", anchors)
+    .labels(annotations=False)
+)
+built_annotated = annotated_builder.build()
+assert built_annotated._windows == ["Admission"], built_annotated._windows
+assert built_annotated._anchors == ["Death"], built_annotated._anchors
+assert built_annotated._annotation_labels is False
+
 themed = Timeseries(id_col="id").interval("Device", intervals).theme("dark")
 assert themed.build().theme == "dark"
 assert themed.theme("light").build().theme == "light"

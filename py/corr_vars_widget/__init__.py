@@ -291,6 +291,12 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
     on a y scale). Value tables are drawn as small line charts stacked beneath,
     one plot per table. All plots share an x scale and are filtered down to a
     single ID chosen from the combobox.
+
+    Window and anchor tables are annotations rather than data: they are drawn
+    across every plot at once -- a window as a shaded band between two
+    timestamps, an anchor as a vertical rule at one -- so a span such as a
+    hospital admission, or a moment such as a death, can be read against every
+    lane and every measurement at the same time.
     """
 
     _esm = BUNDLER_ASSETS_DIR / "timeseries" / "timeseries.js"
@@ -301,6 +307,9 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
     _intervals = traitlets.List(traitlets.Unicode()).tag(sync=True)
     _events = traitlets.List(traitlets.Unicode()).tag(sync=True)
     _values = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    # Annotations, drawn over every plot rather than in a lane of their own.
+    _windows = traitlets.List(traitlets.Unicode()).tag(sync=True)
+    _anchors = traitlets.List(traitlets.Unicode()).tag(sync=True)
     _ids_table = traitlets.Unicode().tag(sync=True)
 
     _id_col = traitlets.Unicode().tag(sync=True)
@@ -319,12 +328,16 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
     # runtime). Interval labels sit inside the bars; event labels beside the dots.
     _interval_labels = traitlets.Bool().tag(sync=True)
     _event_labels = traitlets.Bool().tag(sync=True)
+    # Annotation labels name each window and anchor once, on the topmost plot.
+    _annotation_labels = traitlets.Bool().tag(sync=True)
 
     def __init__(
         self,
         intervals: Mapping[str, pl.DataFrame] | None = None,
         values: Mapping[str, pl.DataFrame] | None = None,
         events: Mapping[str, pl.DataFrame] | None = None,
+        windows: Mapping[str, pl.DataFrame] | None = None,
+        anchors: Mapping[str, pl.DataFrame] | None = None,
         id_col: str = "id",
         start_col: str = "start",
         end_col: str = "end",
@@ -332,6 +345,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
         color_col: str | None = None,
         interval_labels: bool = True,
         event_labels: bool = False,
+        annotation_labels: bool = True,
         **kwargs: object,
     ) -> None:
         """
@@ -348,6 +362,14 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
                     where the value should not become a y scale; it is shown in
                     the tooltip (or beside the dot with `event_labels=True`).
                     `end_col` is not required.
+            windows: Tables with a start and an end, drawn as a shaded band
+                     across every plot rather than in a lane of their own --
+                     a hospital admission, an ICU stay. The dict key names it.
+                     `value_col` is not required.
+            anchors: Tables with a single timestamp, drawn as a vertical rule
+                     across every plot -- a death, a procedure, a transfer.
+                     The dict key names it. `end_col` and `value_col` are not
+                     required.
             id_col: Column identifying the entity (e.g. a stay), present in
                     every table. Drives the menu and filters every plot.
             start_col: Timestamp column starting an interval / locating a value.
@@ -360,21 +382,43 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
                        rows where it is null) fall back to the default colours
                        (the chart palette for intervals, the primary colour for
                        values), so a single lane/series can be coloured while
-                       the rest are not.
+                       the rest are not. Windows and anchors are drawn in a
+                       neutral grey unless this names a colour for them -- so a
+                       red death line is `color_col` with "var(--destructive)".
+            interval_labels: Initial state of the interval label toggle.
+            event_labels: Initial state of the event label toggle.
+            annotation_labels: Initial state of the window/anchor label toggle.
+
+        Windows and anchors annotate the data rather than being data, so they
+        do not widen the time range fitted when an ID is chosen, and they do not
+        contribute IDs to the menu. A window covering a year around a handful of
+        measurements would otherwise squeeze those measurements into a sliver.
         """
         intervals = dict(intervals or {})
         values = dict(values or {})
         events = dict(events or {})
+        windows = dict(windows or {})
+        anchors = dict(anchors or {})
+        # Windows and anchors annotate data; on their own there is nothing to
+        # annotate, and nothing to fit a time range to.
         if not intervals and not values and not events:
             raise ValueError("Pass at least one interval, event or value table.")
 
+        kinds = (
+            ("intervals", intervals),
+            ("events", events),
+            ("values", values),
+            ("windows", windows),
+            ("anchors", anchors),
+        )
         seen: dict[str, str] = {}
-        for kind, tables in (("intervals", intervals), ("events", events), ("values", values)):
+        for kind, tables in kinds:
             for name in tables:
                 if name in seen:
                     raise ValueError(
-                        f"Table names must be unique across intervals, events and values: "
-                        f"{name!r} appears in both {seen[name]} and {kind}"
+                        f"Table names must be unique across intervals, events, values, "
+                        f"windows and anchors: {name!r} appears in both {seen[name]} "
+                        f"and {kind}"
                     )
                 seen[name] = kind
 
@@ -384,6 +428,9 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
             # Events are point-in-time, so they need no `end_col`.
             *((n, d, (id_col, start_col, value_col)) for n, d in events.items()),
             *((n, d, (id_col, start_col, value_col)) for n, d in values.items()),
+            # Annotations are named by their dict key, so they carry no value.
+            *((n, d, (id_col, start_col, end_col)) for n, d in windows.items()),
+            *((n, d, (id_col, start_col)) for n, d in anchors.items()),
         ]:
             missing = [col for col in required if col not in df.columns]
             if missing:
@@ -399,8 +446,11 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
             # Polars .to_arrow() method will cast to non-view array types for us
             conn.register(name, df.to_arrow())
 
-        # A view of every ID across every table, so the menu offers the full
-        # set even when an ID is absent from some of them.
+        # A view of every ID across every data table, so the menu offers the
+        # full set even when an ID is absent from some of them. Windows and
+        # anchors are deliberately excluded: an ID known only from an admission
+        # window has nothing to plot and no extent to fit a time range to, so
+        # offering it would land on an empty dashboard.
         ids_table = "__ids"
         union = " UNION ALL ".join(
             f"SELECT {_quote(id_col)} FROM {_quote(name)}"
@@ -419,12 +469,20 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
         self._conn = conn
         self._shapes = {
             name: df.shape
-            for name, df in (*intervals.items(), *events.items(), *values.items())
+            for name, df in (
+                *intervals.items(),
+                *events.items(),
+                *values.items(),
+                *windows.items(),
+                *anchors.items(),
+            )
         }
         super().__init__(
             _intervals=list(intervals),
             _events=list(events),
             _values=list(values),
+            _windows=list(windows),
+            _anchors=list(anchors),
             _ids_table=ids_table,
             _id_col=id_col,
             _start_col=start_col,
@@ -435,6 +493,7 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
             _initial_id=first[0] if first else None,
             _interval_labels=interval_labels,
             _event_labels=event_labels,
+            _annotation_labels=annotation_labels,
             **kwargs,
         )
         self.on_msg(self._handle_custom_msg)
@@ -450,7 +509,13 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
         """Return each registered table as a DuckDB relation."""
         return {
             name: self._conn.query(f"SELECT * FROM {_quote(name)}")
-            for name in (*self._intervals, *self._events, *self._values)
+            for name in (
+                *self._intervals,
+                *self._events,
+                *self._values,
+                *self._windows,
+                *self._anchors,
+            )
         }
 
 
@@ -466,6 +531,8 @@ class Timeseries:
     ...     .interval("Device", devices_df)
     ...     .event("ECG", ecg_df)
     ...     .value("Sodium", sodium_df)
+    ...     .window("Admission", admissions_df)
+    ...     .anchor("Death", deaths_df)
     ...     .color("colour")
     ...     .theme("dark")
     ... )
@@ -486,9 +553,12 @@ class Timeseries:
         self._intervals: dict[str, pl.DataFrame] = {}
         self._events: dict[str, pl.DataFrame] = {}
         self._values: dict[str, pl.DataFrame] = {}
+        self._windows: dict[str, pl.DataFrame] = {}
+        self._anchors: dict[str, pl.DataFrame] = {}
         self._color_col: str | None = None
         self._interval_labels = True
         self._event_labels = False
+        self._annotation_labels = True
         self._theme = "auto"
         self._widget: TimeseriesWidget | None = None
 
@@ -507,19 +577,35 @@ class Timeseries:
         self._values[name] = df
         return self._touch()
 
+    def window(self, name: str, df: pl.DataFrame) -> "Timeseries":
+        """Add a span shaded across every plot (an admission, an ICU stay)."""
+        self._windows[name] = df
+        return self._touch()
+
+    def anchor(self, name: str, df: pl.DataFrame) -> "Timeseries":
+        """Add a moment ruled across every plot (a death, a transfer)."""
+        self._anchors[name] = df
+        return self._touch()
+
     def color(self, col: str | None) -> "Timeseries":
         """Name the optional per-row CSS-colour column (see ``color_col``)."""
         self._color_col = col
         return self._touch()
 
     def labels(
-        self, *, intervals: bool | None = None, events: bool | None = None
+        self,
+        *,
+        intervals: bool | None = None,
+        events: bool | None = None,
+        annotations: bool | None = None,
     ) -> "Timeseries":
         """Set the initial state of the in-widget label toggles."""
         if intervals is not None:
             self._interval_labels = intervals
         if events is not None:
             self._event_labels = events
+        if annotations is not None:
+            self._annotation_labels = annotations
         return self._touch()
 
     def theme(self, value: str) -> "Timeseries":
@@ -539,6 +625,8 @@ class Timeseries:
                 intervals=self._intervals,
                 events=self._events,
                 values=self._values,
+                windows=self._windows,
+                anchors=self._anchors,
                 id_col=self._id_col,
                 start_col=self._start_col,
                 end_col=self._end_col,
@@ -546,6 +634,7 @@ class Timeseries:
                 color_col=self._color_col,
                 interval_labels=self._interval_labels,
                 event_labels=self._event_labels,
+                annotation_labels=self._annotation_labels,
                 theme=self._theme,
             )
         return self._widget
