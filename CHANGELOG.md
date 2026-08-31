@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.0.11] - 2026-08-31
 
 ### Added
 
@@ -46,6 +46,14 @@
 
 ### Changed
 
+- Releases are built and published by GitHub Actions on a `v*` tag, through
+  PyPI's Trusted Publishing, and are checked before upload: the wheel must
+  contain every bundle, no bundle may carry a sourcemap, no stylesheet may
+  inline a font, and the tag must match the packaged version.
+- The build no longer trusts whatever is already in `static/`. It previously
+  skipped rebuilding when those files existed, and `npm run dev` writes
+  inline-sourcemapped bundles to exactly those paths, so a release cut after a
+  development session could ship the development build.
 - Dropped the bundled Inter webfont, which inlined 291KB of base64 into each of
   the five stylesheets — 82% of every file — for a face nothing resolved to.
   Stylesheets fall from 356KB to 63KB, and the wheel from 2.0MB to 916KB. The
