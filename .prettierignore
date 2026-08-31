@@ -7,3 +7,12 @@ bun.lockb
 
 # Miscellaneous
 /static/
+
+# Formatted by npm, not prettier. Reformatting this to tabs makes npm mirror the
+# change into package-lock.json on the next install, for a several-thousand-line
+# diff that says nothing.
+package.json
+
+# Vendored from the shadcn-svelte registry. Reformatting these would produce a
+# large diff every time a component is re-fetched or updated.
+src/lib/components/ui/

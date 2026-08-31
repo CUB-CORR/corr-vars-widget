@@ -4,13 +4,16 @@ import { mount, unmount } from 'svelte';
 import * as mc from '@uwdata/mosaic-core';
 
 import type * as aw from '@anywidget/types';
+import type { Themed } from '$lib/theme.svelte';
 
 import { mosaicInitialise } from './utils/mosaic';
 
-export type Model = {
+export type Model = Themed & {
 	_intervals: Array<string>;
 	_events: Array<string>;
 	_values: Array<string>;
+	_windows: Array<string>;
+	_anchors: Array<string>;
 	_ids_table: string;
 	_id_col: string;
 	_start_col: string;
@@ -21,6 +24,7 @@ export type Model = {
 	_initial_id: string | number | null;
 	_interval_labels: boolean;
 	_event_labels: boolean;
+	_annotation_labels: boolean;
 };
 
 export default () => {
@@ -33,10 +37,13 @@ export default () => {
 			const app = mount(App, {
 				target: el,
 				props: {
+					model,
 					coordinator,
 					intervals: model.get('_intervals'),
 					events: model.get('_events'),
 					values: model.get('_values'),
+					windows: model.get('_windows'),
+					anchors: model.get('_anchors'),
 					idsTable: model.get('_ids_table'),
 					idCol: model.get('_id_col'),
 					startCol: model.get('_start_col'),
@@ -46,7 +53,8 @@ export default () => {
 					temporal: model.get('_temporal'),
 					initialId: model.get('_initial_id'),
 					intervalLabels: model.get('_interval_labels'),
-					eventLabels: model.get('_event_labels')
+					eventLabels: model.get('_event_labels'),
+					annotationLabels: model.get('_annotation_labels')
 				}
 			});
 			return () => unmount(app);

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "corr_vars_widget"
-version = "0.0.10"
+version = "0.0.11"
 authors = [
   { name="Pedram Ramezani", email="me@pedramramezani.de" },
 ]
@@ -39,18 +39,6 @@ artifacts = ["py/corr_vars_widget/static/*"]
 dependencies = ["hatch-jupyter-builder>=0.5.0"]
 build-function = "hatch_jupyter_builder.npm_builder"
 ensured-targets = [
-    "py/corr_vars_widget/static/json/json.js",
-    "py/corr_vars_widget/static/json/main.css",
-    "py/corr_vars_widget/static/jsonm/jsonm.js",
-    "py/corr_vars_widget/static/jsonm/main.css",
-    "py/corr_vars_widget/static/obs/obs.js",
-    "py/corr_vars_widget/static/obs/main.css",
-    "py/corr_vars_widget/static/obsm/obsm.js",
-    "py/corr_vars_widget/static/obsm/main.css",
-    "py/corr_vars_widget/static/timeseries/timeseries.js",
-    "py/corr_vars_widget/static/timeseries/main.css",
-]
-skip-if-exists = [
     "py/corr_vars_widget/static/json/json.js",
     "py/corr_vars_widget/static/json/main.css",
     "py/corr_vars_widget/static/jsonm/jsonm.js",

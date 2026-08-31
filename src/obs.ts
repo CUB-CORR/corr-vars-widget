@@ -9,11 +9,12 @@ import { DataTable } from '@manzt/quak';
 import { assert } from './utils/assert';
 
 import type * as aw from '@anywidget/types';
+import type { Themed } from '$lib/theme.svelte';
 import { isFlechetteTable } from './utils/guards';
 
 import { mosaicInitialise } from './utils/mosaic';
 
-type Model = {
+type Model = Themed & {
 	_obs_level: string;
 	_creation_time: number | null;
 	_table_name: string;
@@ -24,19 +25,19 @@ type Model = {
 export default () => {
 	let coordinator = new mc.Coordinator();
 	return {
-		initialize({ model} : aw.InitializeProps<Model>) {
-			mosaicInitialise(coordinator, model)
+		initialize({ model }: aw.InitializeProps<Model>) {
+			mosaicInitialise(coordinator, model);
 		},
 		async render({ model, el }: aw.RenderProps<Model>) {
-			const name = model.get("_table_name")
-			const columns =  model.get("_columns")
-			const obsLevel = model.get("_obs_level")
-			const creationTime = model.get("_creation_time")
+			const name = model.get('_table_name');
+			const columns = model.get('_columns');
+			const obsLevel = model.get('_obs_level');
+			const creationTime = model.get('_creation_time');
 
 			const schema = await getTableSchema(coordinator, {
-					tableName: name,
-					columns: columns
-				})
+				tableName: name,
+				columns: columns
+			});
 			const dataTable = new DataTable({
 				table: name,
 				schema: schema,
@@ -44,16 +45,20 @@ export default () => {
 			});
 			coordinator.connect(dataTable);
 			dataTable.sql.subscribe((sql) => {
-				model.set(
-					'sql',
-					sql || ''
-				);
+				model.set('sql', sql || '');
 				model.save_changes();
 			});
 
 			const app = mount(App, {
 				target: el,
-				props: { coordinator: coordinator, data: dataTable, schema: schema, obsLevel: obsLevel, creationTime: creationTime ? new Date(creationTime * 1000) : null }
+				props: {
+					model,
+					coordinator: coordinator,
+					data: dataTable,
+					schema: schema,
+					obsLevel: obsLevel,
+					creationTime: creationTime ? new Date(creationTime * 1000) : null
+				}
 			});
 			return () => unmount(app);
 		}

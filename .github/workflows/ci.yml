@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Typecheck and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Lint
+        run: npm run lint
+
+  build:
+    name: Build and verify the distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `uv build` runs the frontend build itself, through the sdist packaging
+      # hook, so Node has to be here even though nothing calls npm directly.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv build
+
+      # Every guard here corresponds to something that has actually gone wrong.
+      - name: Verify the distribution
+        run: uv run --no-project python .github/scripts/verify_dist.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  python:
+    name: Import on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor from requires-python, and the current release. The floor is
+        # the one that matters: the module relies on `from __future__ import
+        # annotations` to use `str | None` on 3.9, and polars and duckdb still
+        # have to publish wheels for it.
+        python-version: ['3.9', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install the built wheel and exercise every widget
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install --python .venv dist/*.whl
+          uv run --no-project --python .venv python .github/scripts/smoke_test.py

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { AnyModel } from '@anywidget/types';
+	import type { Theme } from '$lib/theme.svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { DataTable } from '@manzt/quak';
 	import * as mc from '@uwdata/mosaic-core';
@@ -8,15 +10,17 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	// import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
-	import './app.css';
+	import WidgetRoot from '$lib/components/composed/WidgetRoot.svelte';
 
 	let {
+		model,
 		coordinator,
 		data,
 		schema,
 		obsLevel,
 		creationTime
 	}: {
+		model?: AnyModel<{ theme: Theme }>;
 		coordinator: mc.Coordinator;
 		data: DataTable;
 		schema: flech.Schema;
@@ -147,7 +151,7 @@
 	// );
 </script>
 
-<div class="w-full p-2">
+<WidgetRoot {model} class="w-full p-2">
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>Obs</Card.Title>
@@ -159,7 +163,7 @@
 			</Card.Action> -->
 		</Card.Header>
 		<Card.Content>
-			<div {@attach appendTable(data)}></div>
+			<div class="quak-host" {@attach appendTable(data)}></div>
 			<!-- <div>
 				{#each Object.entries(groupedByType) as [fieldType, fields]}
 					{fieldType}: {fields.join(', ')} <br />
@@ -185,4 +189,4 @@
 			>
 		</Card.Footer>
 	</Card.Root>
-</div>
+</WidgetRoot>

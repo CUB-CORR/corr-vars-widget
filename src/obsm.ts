@@ -9,6 +9,7 @@ import { DataTable } from '@manzt/quak';
 import { assert } from './utils/assert';
 
 import type * as aw from '@anywidget/types';
+import type { Themed } from '$lib/theme.svelte';
 import { isFlechetteTable } from './utils/guards';
 
 import { mosaicInitialise } from './utils/mosaic';
@@ -19,7 +20,7 @@ type Table = {
 	sql: string;
 };
 
-type Model = {
+type Model = Themed & {
 	_tables: Array<Table>;
 };
 
@@ -63,7 +64,7 @@ export default () => {
 
 			const app = mount(App, {
 				target: el,
-				props: { coordinator: coordinator, tables: appTables }
+				props: { model, coordinator: coordinator, tables: appTables }
 			});
 			return () => unmount(app);
 		}
