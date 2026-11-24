@@ -69,7 +69,15 @@ jobs:
         # the one that matters: the module relies on `from __future__ import
         # annotations` to use `str | None` on 3.9, and polars and duckdb still
         # have to publish wheels for it.
-        python-version: ['3.9', '3.13']
+        #
+        # Each also pins a duckdb major. duckdb 2.0 refuses queries while an
+        # earlier result is unfinished (#6), so both lines need covering, and
+        # 2.0 has no wheels below Python 3.11.
+        include:
+          - python-version: '3.9'
+            duckdb: 'duckdb<2'
+          - python-version: '3.13'
+            duckdb: 'duckdb>=2'
     steps:
       - uses: actions/checkout@v4
 
@@ -83,5 +91,6 @@ jobs:
       - name: Install the built wheel and exercise every widget
         run: |
           uv venv --python ${{ matrix.python-version }}
-          uv pip install --python .venv dist/*.whl
+          uv pip install --python .venv dist/*.whl '${{ matrix.duckdb }}'
+          uv run --no-project --python .venv python -c "import duckdb; print('duckdb', duckdb.__version__)"
           uv run --no-project --python .venv python .github/scripts/smoke_test.py

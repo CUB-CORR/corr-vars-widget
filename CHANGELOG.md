@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.12] - 2026-11-24
+
+### Fixed
+
+- `TimeseriesWidget` showed no data on duckdb >= 2.0 (#6). duckdb 2.0 refuses
+  any query on a connection while an earlier result is still unfinished, and the
+  constructor looked up the initial ID with `.fetchone()`, which left its result
+  open on the connection the widget then serves queries from. Every query the
+  frontend sent afterwards came back as an error. The lookup now fetches the
+  whole (single-row) result, and `exec` requests drain theirs too, so a
+  statement that returns rows can no longer block the next query.
+
 ## [0.0.11] - 2026-08-31
 
 ### Added
