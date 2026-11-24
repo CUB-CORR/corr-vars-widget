@@ -107,6 +107,33 @@ assert ts._intervals == ["Device"] and ts._values == ["Sodium"]
 assert ts._initial_id == 1, ts._initial_id
 assert set(ts.data) == {"Device", "Sodium"}, set(ts.data)
 
+# The frontend's queries must all succeed on a freshly built widget, and keep
+# succeeding after each other. duckdb >= 2.0 rejects any query while an earlier
+# result on the connection is unfinished, so a partial fetch anywhere (#6) shows
+# up here as an error reply rather than a result.
+sent = []
+ts.send = lambda msg, buffers=None: sent.append((msg, buffers))
+for command, sql in [
+    ("json", 'SELECT count(*) AS n FROM "__ids"'),
+    ("arrow", 'SELECT * FROM "Sodium"'),
+    ("exec", 'SELECT * FROM "Sodium"'),  # returns rows nobody reads
+    ("exec", "CREATE TEMP TABLE scratch AS SELECT 1 AS x"),
+    ("json", 'SELECT count(*) AS n FROM "Device"'),
+    ("arrow", "SELECT * FROM scratch"),
+]:
+    sent.clear()
+    ts._handle_custom_msg({"type": command, "uuid": command, "sql": sql}, [])
+    [(msg, buffers)] = sent
+    assert "error" not in msg, f"{command} {sql!r} failed: {msg['error']}"
+    assert msg["type"] == command, msg
+    if command == "json":
+        assert msg["result"] == [{"n": 2 if "Device" in sql else 1}], msg
+    if command == "arrow":
+        assert buffers and len(buffers[0]) > 0, f"{command} {sql!r} sent no data"
+# Release the IPC memoryviews, or their BytesIO complains at interpreter exit.
+sent.clear()
+del msg, buffers
+
 # The builder produces the same widget, and re-renders after a change.
 builder = Timeseries(id_col="id").interval("Device", intervals).value("Sodium", values)
 built = builder.build()

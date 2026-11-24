@@ -117,7 +117,9 @@ class _DuckDBQueryMixin:
                 buf = table_to_ipc(result)
                 self.send({"type": "arrow", "uuid": uuid}, buffers=[buf])
             elif command == "exec":
-                self._conn.execute(sql)
+                # Drain the result: duckdb >= 2.0 refuses any further work on a
+                # connection while an earlier `execute()` result is unfinished.
+                self._conn.execute(sql).fetchall()
                 self.send({"type": "exec", "uuid": uuid})
             elif command == "json":
                 # Avoid DuckDB's `.df()`, which pulls in pandas and numpy.
@@ -462,7 +464,10 @@ class TimeseriesWidget(_DuckDBQueryMixin, _ThemeMixin, anywidget.AnyWidget):
             f"WHERE {_quote(id_col)} IS NOT NULL "
             f"ORDER BY {_quote(id_col)}"
         )
-        first = conn.execute(f"SELECT * FROM {_quote(ids_table)} LIMIT 1").fetchone()
+        # `fetchall`, not `fetchone`: a partly fetched result stays open on the
+        # connection, and duckdb >= 2.0 then rejects every later query on it.
+        rows = conn.execute(f"SELECT * FROM {_quote(ids_table)} LIMIT 1").fetchall()
+        first = rows[0] if rows else None
 
         any_df = next(iter({**intervals, **events, **values}.values()))
 
